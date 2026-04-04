@@ -1,0 +1,92 @@
+[
+  {
+    "id": "REQ-401",
+    "type": "FIT",
+    "description": "Analyze how the API seeds sample books during startup.",
+    "file_hint": "app.py"
+  },
+  {
+    "id": "REQ-402",
+    "type": "FIT",
+    "description": "Review how order totals are calculated from order lines.",
+    "file_hint": "order.py"
+  },
+  {
+    "id": "REQ-403",
+    "type": "FIT",
+    "description": "Summarize how low-stock books are identified in reports",
+    "file_hint": "reporting_service.py"
+  },
+  {
+    "id": "REQ-404",
+    "type": "PARTIAL",
+    "description": "Add author filtering to the book listing endpoint.",
+    "file_hint": "app.py"
+  },
+  {
+    "id": "REQ-405",
+    "type": "PARTIAL",
+    "description": "Support maximum price filtering when listing books.",
+    "file_hint": "inventory_service.py"
+  },
+  {
+    "id": "REQ-406",
+    "type": "PARTIAL",
+    "description": "Reject negative reorder levels when adding new books.",
+    "file_hint": "inventory_service.py"
+  },
+  {
+    "id": "REQ-407",
+    "type": "PARTIAL",
+    "description": "Add an endpoint to fetch an order by order ID.",
+    "file_hint": "app.py"
+  },
+  {
+    "id": "REQ-408",
+    "type": "PARTIAL",
+    "description": "Include average order value in the overview report.",
+    "file_hint": "reporting_service.py"
+  },
+  {
+    "id": "REQ-409",
+    "type": "PARTIAL",
+    "description": "Track total books sold in the overview report.",
+    "file_hint": "reporting_service.py"
+  },
+  {
+    "id": "REQ-410",
+    "type": "PARTIAL",
+    "description": "Allow restocking several books in one API request.",
+    "file_hint": "app.py"
+  },
+  {
+    "id": "REQ-411",
+    "type": "PARTIAL",
+    "description": "Prevent duplicate SKUs when values differ only by casing.",
+    "file_hint": "validators.py"
+  },
+  {
+    "id": "REQ-412",
+    "type": "PARTIAL",
+    "description": "Add a repository helper to fetch an order by ID.",
+    "file_hint": "memory_store.py"
+  },
+  {
+    "id": "REQ-413",
+    "type": "GAP",
+    "description": "Create a notifications service for low-stock alerts.",
+    "file_hint": "notification_service.py"
+  },
+  {
+    "id": "REQ-414",
+    "type": "GAP",
+    "description": "Create a pricing utility for percentage discounts.",
+    "file_hint": "pricing.py"
+  },
+  {
+    "id": "REQ-415",
+    "type": "FIT",
+    "description": "Analyze how book data is stored in the in-memory repository.",
+    "file_hint": "memory_store.py"
+  }
+]

@@ -1,0 +1,2124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Req-to-Code</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        panel: "#ffffff",
+                        base: "#f4f6fb",
+                        ink: "#0f172a",
+                        mute: "#64748b",
+                        line: "#dbe4f0",
+                        stageAnalyze: "#2563eb",
+                        stageKg: "#7c3aed",
+                        stageAst: "#ea580c",
+                        stagePlan: "#16a34a",
+                        stageCode: "#111827",
+                        stageReview: "#0f766e"
+                    },
+                    boxShadow: {
+                        soft: "0 20px 45px rgba(15, 23, 42, 0.08)"
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <style>
+        body { background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%); }
+        .stage-line {
+            background: linear-gradient(90deg, #c7d2fe 0%, #d8b4fe 25%, #fdba74 50%, #86efac 75%, #99f6e4 100%);
+        }
+        .editor-shell {
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
+                linear-gradient(180deg, #111827 0%, #0f172a 100%);
+        }
+        .editor-toolbar {
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+        }
+        .code-scroll pre[class*="language-"] {
+            margin: 0;
+            background: transparent;
+            border-radius: 0;
+            min-height: 260px;
+            padding: 1.5rem 1.75rem 1.75rem;
+            overflow: auto;
+            font-family: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+            font-size: 14px;
+            line-height: 1.75;
+            letter-spacing: -0.01em;
+            tab-size: 4;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+        .code-scroll code[class*="language-"] {
+            font-family: inherit;
+            white-space: pre;
+        }
+        .code-scroll .token.comment,
+        .code-scroll .token.prolog,
+        .code-scroll .token.doctype,
+        .code-scroll .token.cdata {
+            color: #94a3b8;
+        }
+        .code-scroll .token.punctuation {
+            color: #cbd5e1;
+        }
+        .code-scroll .token.property,
+        .code-scroll .token.tag,
+        .code-scroll .token.boolean,
+        .code-scroll .token.number,
+        .code-scroll .token.constant,
+        .code-scroll .token.symbol,
+        .code-scroll .token.deleted {
+            color: #fda4af;
+        }
+        .code-scroll .token.selector,
+        .code-scroll .token.attr-name,
+        .code-scroll .token.string,
+        .code-scroll .token.char,
+        .code-scroll .token.builtin,
+        .code-scroll .token.inserted {
+            color: #86efac;
+        }
+        .code-scroll .token.operator,
+        .code-scroll .token.entity,
+        .code-scroll .token.url,
+        .code-scroll .language-css .token.string,
+        .code-scroll .style .token.string {
+            color: #fcd34d;
+            background: transparent;
+        }
+        .code-scroll .token.atrule,
+        .code-scroll .token.attr-value,
+        .code-scroll .token.keyword {
+            color: #93c5fd;
+        }
+        .code-scroll .token.function,
+        .code-scroll .token.class-name {
+            color: #c4b5fd;
+        }
+        .code-scroll .token.regex,
+        .code-scroll .token.important,
+        .code-scroll .token.variable {
+            color: #fdba74;
+        }
+        .code-scroll .token.important,
+        .code-scroll .token.bold {
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-ink">
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <script src="https://unpkg.com/cytoscape/dist/cytoscape.min.js"></script>
+
+    <script type="text/babel">
+        const { useEffect, useMemo, useRef, useState } = React;
+
+        const STAGES = [
+            { id: "analyze", label: "Analyze", color: "bg-stageAnalyze", ring: "ring-stageAnalyze/20", text: "text-stageAnalyze" },
+            { id: "kg", label: "KG", color: "bg-stageKg", ring: "ring-stageKg/20", text: "text-stageKg" },
+            { id: "ast", label: "AST", color: "bg-stageAst", ring: "ring-stageAst/20", text: "text-stageAst" },
+            { id: "plan", label: "Plan", color: "bg-stagePlan", ring: "ring-stagePlan/20", text: "text-stagePlan" },
+            { id: "code", label: "Code", color: "bg-stageCode", ring: "ring-slate-300", text: "text-slate-900" },
+            { id: "review", label: "Review", color: "bg-stageReview", ring: "ring-stageReview/20", text: "text-stageReview" }
+        ];
+
+        const STORAGE_KEY = "req_to_code_uploaded_codebase";
+        const ANALYSIS_CACHE_KEY = "req_to_code_analysis_cache";
+
+        function classNames(...values) {
+            return values.filter(Boolean).join(" ");
+        }
+
+        function parseRequirements(rawText) {
+            const text = (rawText || "").trim();
+            if (!text) return [];
+
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) {
+                    return parsed.map((item, index) => ({
+                        id: item.id || `REQ-${index + 1}`,
+                        type: (item.type || "PARTIAL").toUpperCase(),
+                        description: item.description || "",
+                        file_hint: item.file_hint || "Not specified"
+                    }));
+                }
+                if (parsed && typeof parsed === "object") {
+                    const items = [];
+                    ["FIT", "PARTIAL", "GAP"].forEach((type) => {
+                        (parsed[type] || []).forEach((item, index) => {
+                            items.push({
+                                id: item.id || `${type}-${index + 1}`,
+                                type,
+                                description: item.description || "",
+                                file_hint: item.file_hint || "Not specified"
+                            });
+                        });
+                    });
+                    return items;
+                }
+            } catch (error) {
+                return text
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                    .map((line, index) => {
+                        const parts = line.split("|").map((part) => part.trim());
+                        let type = "PARTIAL";
+                        let description = line;
+                        let fileHint = "Not specified";
+
+                        if (parts.length >= 3) {
+                            [type, description, fileHint] = parts;
+                        } else if (parts.length === 2) {
+                            if (["FIT", "PARTIAL", "GAP"].includes(parts[0].toUpperCase())) {
+                                [type, description] = parts;
+                            } else {
+                                [description, fileHint] = parts;
+                            }
+                        } else if (line.includes(":")) {
+                            const [maybeType, rest] = line.split(/:(.+)/).map((part) => part.trim());
+                            if (["FIT", "PARTIAL", "GAP"].includes((maybeType || "").toUpperCase()) && rest) {
+                                type = maybeType;
+                                description = rest;
+                            }
+                        }
+
+                        return {
+                            id: `REQ-${index + 1}`,
+                            type: type.toUpperCase(),
+                            description,
+                            file_hint: fileHint
+                        };
+                    });
+            }
+
+            return [];
+        }
+
+        function normalizeRequirementEntry(requirement = {}, index = 0) {
+            return {
+                id: requirement.id || `REQ-${index + 1}`,
+                type: (requirement.type || "PARTIAL").toUpperCase(),
+                description: requirement.description || "",
+                file_hint: requirement.file_hint || ""
+            };
+        }
+
+        function createEmptyRequirement(index = 0) {
+            return {
+                id: `REQ-${index + 1}`,
+                type: "PARTIAL",
+                description: "",
+                file_hint: ""
+            };
+        }
+
+        function serializeFormRequirements(items = []) {
+            const normalized = items
+                .map((item, index) => normalizeRequirementEntry(item, index))
+                .filter((item) => item.description.trim() || item.file_hint.trim() || item.id.trim());
+
+            return JSON.stringify(
+                normalized.map((item, index) => ({
+                    id: item.id.trim() || `REQ-${index + 1}`,
+                    type: item.type || "PARTIAL",
+                    description: item.description.trim(),
+                    file_hint: item.file_hint.trim() || "Not specified"
+                })),
+                null,
+                2
+            );
+        }
+
+        function getStatusMeta(status) {
+            if (status === "loading") return { label: "Loading", tone: "bg-amber-100 text-amber-700" };
+            if (status === "success") return { label: "Success", tone: "bg-emerald-100 text-emerald-700" };
+            if (status === "error") return { label: "Error", tone: "bg-rose-100 text-rose-700" };
+            return { label: "Idle", tone: "bg-slate-100 text-slate-600" };
+        }
+
+        function getCodeLanguage(filePath = "") {
+            const normalized = filePath.toLowerCase();
+            if (normalized.endsWith(".py")) return "python";
+            if (normalized.endsWith(".js") || normalized.endsWith(".ts") || normalized.endsWith(".tsx") || normalized.endsWith(".jsx")) return "javascript";
+            if (normalized.endsWith(".json")) return "json";
+            if (normalized.endsWith(".html") || normalized.endsWith(".xml")) return "markup";
+            return "clike";
+        }
+
+        function sanitizeCodeDisplay(content = "") {
+            return String(content || "")
+                .replace(/\u00A0/g, " ")
+                .replace(/\u200B/g, "")
+                .replace(/\u2018|\u2019/g, "'")
+                .replace(/\u201C|\u201D/g, '"')
+                .replace(/\u2013|\u2014|\u2212/g, "-")
+                .replace(/\u2264/g, "<=")
+                .replace(/\u2265/g, ">=")
+                .replace(/\u00D7/g, "*")
+                .replace(/\u00F7/g, "/");
+        }
+
+        function buildAnalysisCachePayload(sourceKey, data, includeArchitecture = false) {
+            if (!data) return null;
+            return {
+                sourceKey,
+                data: includeArchitecture ? data : {
+                    overall_summary: data.overall_summary || "",
+                    module_summaries: Array.isArray(data.module_summaries) ? data.module_summaries : [],
+                    graph_stats: data.graph_stats || {},
+                    files: Array.isArray(data.files) ? data.files : []
+                }
+            };
+        }
+
+        function safeWriteAnalysisCache(sourceKey, data, includeArchitecture = false) {
+            const payload = buildAnalysisCachePayload(sourceKey, data, includeArchitecture);
+            if (!payload) return false;
+            try {
+                localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify(payload));
+                return true;
+            } catch (error) {
+                console.warn("Analysis cache write skipped:", error);
+                try {
+                    localStorage.removeItem(ANALYSIS_CACHE_KEY);
+                } catch (removeError) {
+                    console.warn("Analysis cache cleanup skipped:", removeError);
+                }
+                return false;
+            }
+        }
+
+        function normalizeDisplayPath(value = "") {
+            const normalized = String(value || "").replaceAll("\\", "/");
+            if (!normalized) return "Unknown";
+
+            if (normalized.includes("data/codebase/")) {
+                return normalized.split("data/codebase/")[1];
+            }
+
+            const parts = normalized.split("/").filter(Boolean);
+            const tempIndex = parts.findIndex((part) => part.startsWith("req-to-code-upload-") || part.startsWith("req-to-code-"));
+            if (tempIndex >= 0 && tempIndex + 1 < parts.length) {
+                return parts.slice(tempIndex + 1).join("/");
+            }
+
+            return normalized;
+        }
+
+        function getStageAccent(stepId) {
+            if (stepId === "analyze") return "#2563eb";
+            if (stepId === "kg") return "#7c3aed";
+            if (stepId === "ast") return "#ea580c";
+            if (stepId === "plan") return "#16a34a";
+            if (stepId === "code") return "#111827";
+            return "#0f766e";
+        }
+
+        function shortenPath(value = "", segments = 2) {
+            const normalized = normalizeDisplayPath(value);
+            const parts = normalized.split("/").filter(Boolean);
+            if (parts.length <= segments) return normalized || "Unknown";
+            return parts.slice(-segments).join("/");
+        }
+
+        function truncateLabel(value = "", maxLength = 28) {
+            const text = String(value || "");
+            if (text.length <= maxLength) return text;
+            return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+        }
+
+        function formatGraphNodeLabel(node) {
+            if (!node) return "Unknown";
+            if (node.type === "file") {
+                return truncateLabel(shortenPath(node.path || node.name || node.id, 2), 30);
+            }
+            return truncateLabel(node.qualname || node.name || node.path || node.id, 26);
+        }
+
+        function formatGraphNodeMeta(node) {
+            if (!node) return "";
+            if (node.type === "file") return normalizeDisplayPath(node.path || "");
+            return node.path ? shortenPath(node.path, 3) : "";
+        }
+
+        function getModuleSummaries(analysisData) {
+            if (Array.isArray(analysisData?.module_summaries) && analysisData.module_summaries.length) {
+                return analysisData.module_summaries;
+            }
+
+            return (analysisData?.semantic_ast || []).map((module) => ({
+                path: normalizeDisplayPath(module.path || module.name || "Unknown module"),
+                summary: module.summary || "Summary not available.",
+                class_count: (module.classes || []).length,
+                function_count: (module.functions || []).length,
+                import_count: (module.imports || []).length,
+                summary_available: !String(module.summary || "").startsWith("LLM summary unavailable"),
+            }));
+        }
+
+        function buildGraphViewModel(graph) {
+            const sourceNodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+            const sourceEdges = Array.isArray(graph?.edges) ? graph.edges : [];
+
+            if (!sourceNodes.length) {
+                return {
+                    nodes: [],
+                    edges: [],
+                    files: [],
+                    nodeLookup: new Map(),
+                    relationsByNode: new Map(),
+                    stats: {
+                        shownNodes: 0,
+                        shownEdges: 0,
+                        fileCount: 0,
+                        classCount: 0,
+                        functionCount: 0,
+                        hiddenImports: 0,
+                        hiddenVariables: 0
+                    }
+                };
+            }
+
+            const allowedNodeTypes = new Set(["file", "class", "function"]);
+            const allowedEdgeTypes = new Set(["DEFINES", "CALLS", "INHERITS"]);
+            const nodeLookup = new Map(sourceNodes.map((node) => [node.id, node]));
+            const relationScore = new Map();
+            const fileChildren = new Map();
+            const hiddenImports = sourceNodes.filter((node) => node.type === "import").length;
+            const hiddenVariables = sourceNodes.filter((node) => node.type === "variable").length;
+
+            sourceEdges.forEach((edge) => {
+                if (!allowedEdgeTypes.has(edge.type)) return;
+                relationScore.set(edge.from, (relationScore.get(edge.from) || 0) + 1);
+                relationScore.set(edge.to, (relationScore.get(edge.to) || 0) + 1);
+
+                const fromNode = nodeLookup.get(edge.from);
+                const toNode = nodeLookup.get(edge.to);
+                if (edge.type === "DEFINES" && fromNode?.type === "file" && (toNode?.type === "class" || toNode?.type === "function")) {
+                    const children = fileChildren.get(edge.from) || [];
+                    children.push(edge.to);
+                    fileChildren.set(edge.from, children);
+                }
+            });
+
+            const rankedFiles = sourceNodes
+                .filter((node) => node.type === "file")
+                .map((node) => ({
+                    ...node,
+                    score: (fileChildren.get(node.id) || []).length * 3 + (relationScore.get(node.id) || 0)
+                }))
+                .sort((left, right) => right.score - left.score || String(left.path || left.id).localeCompare(String(right.path || right.id)))
+                .slice(0, 10);
+
+            const selectedNodeIds = new Set(rankedFiles.map((node) => node.id));
+
+            rankedFiles.forEach((fileNode) => {
+                const children = (fileChildren.get(fileNode.id) || [])
+                    .map((childId) => nodeLookup.get(childId))
+                    .filter(Boolean)
+                    .sort((left, right) => {
+                        const leftPriority = left.type === "class" ? 0 : 1;
+                        const rightPriority = right.type === "class" ? 0 : 1;
+                        if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+                        return (relationScore.get(right.id) || 0) - (relationScore.get(left.id) || 0);
+                    })
+                    .slice(0, 7);
+
+                children.forEach((child) => selectedNodeIds.add(child.id));
+            });
+
+            const filteredNodes = sourceNodes
+                .filter((node) => allowedNodeTypes.has(node.type) && selectedNodeIds.has(node.id))
+                .map((node) => ({
+                    ...node,
+                    label: formatGraphNodeLabel(node),
+                    displayLabel: node.type === "function" ? "" : formatGraphNodeLabel(node),
+                    metaLabel: formatGraphNodeMeta(node),
+                    relationCount: relationScore.get(node.id) || 0
+                }));
+
+            const filteredNodeLookup = new Map(filteredNodes.map((node) => [node.id, node]));
+
+            const filteredEdges = sourceEdges
+                .filter((edge) => allowedEdgeTypes.has(edge.type) && filteredNodeLookup.has(edge.from) && filteredNodeLookup.has(edge.to))
+                .map((edge, index) => ({
+                    id: `edge-${index}`,
+                    source: edge.from,
+                    target: edge.to,
+                    type: edge.type
+                }));
+
+            const relationsByNode = new Map();
+            filteredEdges.forEach((edge) => {
+                const sourceNode = filteredNodeLookup.get(edge.source);
+                const targetNode = filteredNodeLookup.get(edge.target);
+                if (!sourceNode || !targetNode) return;
+
+                const sourceRelations = relationsByNode.get(edge.source) || [];
+                sourceRelations.push({
+                    direction: "out",
+                    type: edge.type,
+                    nodeId: edge.target,
+                    label: targetNode.label,
+                    nodeType: targetNode.type
+                });
+                relationsByNode.set(edge.source, sourceRelations);
+
+                const targetRelations = relationsByNode.get(edge.target) || [];
+                targetRelations.push({
+                    direction: "in",
+                    type: edge.type,
+                    nodeId: edge.source,
+                    label: sourceNode.label,
+                    nodeType: sourceNode.type
+                });
+                relationsByNode.set(edge.target, targetRelations);
+            });
+
+            return {
+                nodes: filteredNodes,
+                edges: filteredEdges,
+                files: rankedFiles.map((node) => filteredNodeLookup.get(node.id)).filter(Boolean),
+                nodeLookup: filteredNodeLookup,
+                relationsByNode,
+                stats: {
+                    shownNodes: filteredNodes.length,
+                    shownEdges: filteredEdges.length,
+                    fileCount: filteredNodes.filter((node) => node.type === "file").length,
+                    classCount: filteredNodes.filter((node) => node.type === "class").length,
+                    functionCount: filteredNodes.filter((node) => node.type === "function").length,
+                    hiddenImports,
+                    hiddenVariables
+                }
+            };
+        }
+
+        function EmptyState({ title, body }) {
+            return (
+                <div className="rounded-3xl border border-dashed border-line bg-white p-8 text-center shadow-soft">
+                    <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-mute">{body}</p>
+                </div>
+            );
+        }
+
+        function RequirementCard({ requirement, onSelect, selected }) {
+            const tone = requirement.type === "FIT"
+                ? "bg-blue-50 text-blue-700 border-blue-200"
+                : requirement.type === "GAP"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-emerald-50 text-emerald-700 border-emerald-200";
+
+            return (
+                <button
+                    type="button"
+                    onClick={() => onSelect(requirement.id)}
+                    className={classNames(
+                        "w-full rounded-2xl border p-4 text-left transition hover:border-slate-300 hover:bg-slate-50",
+                        selected ? "border-slate-900 bg-slate-50" : "border-line bg-white"
+                    )}
+                >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">{requirement.id}</div>
+                            <div className="mt-1 break-all text-sm text-mute">{requirement.file_hint}</div>
+                        </div>
+                        <span className={classNames("inline-flex shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold", tone)}>{requirement.type}</span>
+                    </div>
+                    <p className="text-sm leading-6 text-slate-700">{requirement.description}</p>
+                </button>
+            );
+        }
+
+        function PipelineStep({ step, status, selected, onSelect }) {
+            const meta = getStatusMeta(status);
+            return (
+                <button
+                    type="button"
+                    onClick={() => onSelect(step.id)}
+                    className={classNames(
+                        "relative z-10 flex min-h-[148px] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-2xl border bg-white px-3 py-4 text-center shadow-soft transition hover:-translate-y-0.5",
+                        selected ? `border-transparent ring-4 ${step.ring}` : "border-line"
+                    )}
+                >
+                    <span className={classNames("flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white", step.color)}>{step.label}</span>
+                    <div>
+                        <div className={classNames("text-sm font-semibold", step.text)}>{step.label}</div>
+                        <span className={classNames("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-medium", meta.tone)}>{meta.label}</span>
+                    </div>
+                </button>
+            );
+        }
+
+        function PipelineOverview({ steps, statuses, selectedStep, onSelect }) {
+            const containerRef = useRef(null);
+            const nodeRefs = useRef({});
+            const [lines, setLines] = useState([]);
+
+            useEffect(() => {
+                function updateLines() {
+                    const container = containerRef.current;
+                    if (!container) return;
+
+                    const containerRect = container.getBoundingClientRect();
+                    const nextLines = [];
+
+                    steps.forEach((step, index) => {
+                        if (index === steps.length - 1) return;
+
+                        const fromNode = nodeRefs.current[step.id];
+                        const toNode = nodeRefs.current[steps[index + 1].id];
+                        if (!fromNode || !toNode) return;
+
+                        const fromRect = fromNode.getBoundingClientRect();
+                        const toRect = toNode.getBoundingClientRect();
+                        const x1 = fromRect.left - containerRect.left + (fromRect.width / 2);
+                        const y1 = fromRect.top - containerRect.top + (fromRect.height / 2);
+                        const x2 = toRect.left - containerRect.left + (toRect.width / 2);
+                        const y2 = toRect.top - containerRect.top + (toRect.height / 2);
+                        const delta = Math.max(28, Math.abs(x2 - x1) * 0.35);
+                        const c1x = x1 < x2 ? x1 + delta : x1 - delta;
+                        const c2x = x1 < x2 ? x2 - delta : x2 + delta;
+
+                        nextLines.push({
+                            id: `${step.id}-${steps[index + 1].id}`,
+                            x1,
+                            y1,
+                            x2,
+                            y2,
+                            c1x,
+                            c2x,
+                            stroke: getStageAccent(steps[index + 1].id)
+                        });
+                    });
+
+                    setLines(nextLines);
+                }
+
+                updateLines();
+
+                const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateLines) : null;
+                if (observer) {
+                    if (containerRef.current) observer.observe(containerRef.current);
+                    steps.forEach((step) => {
+                        const node = nodeRefs.current[step.id];
+                        if (node) observer.observe(node);
+                    });
+                }
+
+                window.addEventListener("resize", updateLines);
+
+                return () => {
+                    window.removeEventListener("resize", updateLines);
+                    if (observer) observer.disconnect();
+                };
+            }, [steps, selectedStep, statuses]);
+
+            return (
+                <div ref={containerRef} className="relative mt-8">
+                    <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+                        {lines.map((line) => (
+                            <g key={line.id}>
+                                <path
+                                    d={`M ${line.x1} ${line.y1} C ${line.c1x} ${line.y1}, ${line.c2x} ${line.y2}, ${line.x2} ${line.y2}`}
+                                    fill="none"
+                                    stroke={line.stroke}
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                    opacity="0.42"
+                                />
+                                <circle cx={line.x2} cy={line.y2} r="4" fill={line.stroke} opacity="0.7" />
+                            </g>
+                        ))}
+                    </svg>
+
+                    <div
+                        className="relative z-10 grid gap-4"
+                        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))" }}
+                    >
+                        {steps.map((step, index) => (
+                            <div
+                                key={step.id}
+                                ref={(node) => {
+                                    if (node) {
+                                        nodeRefs.current[step.id] = node;
+                                    } else {
+                                        delete nodeRefs.current[step.id];
+                                    }
+                                }}
+                                className="min-w-0"
+                            >
+                                <PipelineStep step={step} status={statuses[step.id]} selected={selectedStep === step.id} onSelect={onSelect} />
+                                {index < steps.length - 1 ? (
+                                    <div className="mt-2 text-center text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                                        {step.label} to {steps[index + 1].label}
+                                    </div>
+                                ) : (
+                                    <div className="mt-2 text-center text-[11px] font-medium uppercase tracking-[0.12em] text-slate-300">
+                                        Final stage
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        function ProgressFeed({ statuses }) {
+            const items = [
+                { id: "analyze", text: "Analyze completed" },
+                { id: "kg", text: "KG generated" },
+                { id: "ast", text: "AST prepared" },
+                { id: "plan", text: "Planning" },
+                { id: "code", text: "Code generated" },
+                { id: "review", text: "Stored for review" }
+            ];
+
+            return (
+                <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
+                    <div className="mb-4 text-sm font-semibold text-slate-900">Execution progress</div>
+                    <div className="space-y-3">
+                        {items.map((item) => {
+                            const status = statuses[item.id] || "idle";
+                            const icon = status === "success" ? "OK" : status === "loading" ? "..." : status === "error" ? "!" : "o";
+                            const tone = status === "success" ? "text-emerald-700" : status === "loading" ? "text-amber-600" : status === "error" ? "text-rose-700" : "text-slate-500";
+                            return (
+                                <div key={item.id} className={classNames("flex items-center gap-3 text-sm", tone)}>
+                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold">{icon}</span>
+                                    <span>{item.text}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+
+        function GraphViewer({ graph }) {
+            const containerRef = useRef(null);
+            const cyRef = useRef(null);
+            const viewModel = useMemo(() => buildGraphViewModel(graph), [graph]);
+            const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+            useEffect(() => {
+                if (!viewModel.nodes.length) {
+                    setSelectedNodeId(null);
+                    return;
+                }
+                setSelectedNodeId((current) => {
+                    if (current && viewModel.nodeLookup.has(current)) return current;
+                    return viewModel.files[0]?.id || viewModel.nodes[0]?.id || null;
+                });
+            }, [viewModel]);
+
+            useEffect(() => {
+                if (!containerRef.current || !window.cytoscape || !viewModel.nodes.length) return undefined;
+
+                const cy = window.cytoscape({
+                    container: containerRef.current,
+                    elements: [
+                        ...viewModel.nodes.map((node) => ({
+                            data: {
+                                id: node.id,
+                                label: node.displayLabel,
+                                fullLabel: node.label,
+                                metaLabel: node.metaLabel,
+                                type: node.type,
+                                relationCount: node.relationCount
+                            }
+                        })),
+                        ...viewModel.edges.map((edge) => ({
+                            data: {
+                                id: edge.id,
+                                source: edge.source,
+                                target: edge.target,
+                                edgeType: edge.type
+                            }
+                        }))
+                    ],
+                    layout: {
+                        name: "breadthfirst",
+                        animate: false,
+                        fit: true,
+                        directed: true,
+                        padding: 28,
+                        spacingFactor: 1.35,
+                        roots: viewModel.files.map((node) => node.id)
+                    },
+                    style: [
+                        {
+                            selector: "node",
+                            style: {
+                                label: "data(label)",
+                                "font-size": 11,
+                                color: "#0f172a",
+                                "text-wrap": "wrap",
+                                "text-max-width": 120,
+                                "text-valign": "center",
+                                "text-halign": "center",
+                                "border-width": 2,
+                                "border-color": "#cbd5e1",
+                                "background-color": "#e2e8f0",
+                                width: 48,
+                                height: 48
+                            }
+                        },
+                        {
+                            selector: 'node[type = "file"]',
+                            style: {
+                                shape: "round-rectangle",
+                                width: 180,
+                                height: 66,
+                                "background-color": "#dbeafe",
+                                "border-color": "#60a5fa",
+                                "font-size": 12,
+                                "font-weight": 700,
+                                color: "#1e3a8a",
+                                "text-max-width": 150
+                            }
+                        },
+                        {
+                            selector: 'node[type = "class"]',
+                            style: {
+                                shape: "round-rectangle",
+                                width: 132,
+                                height: 48,
+                                "background-color": "#ede9fe",
+                                "border-color": "#8b5cf6",
+                                color: "#5b21b6"
+                            }
+                        },
+                        {
+                            selector: 'node[type = "function"]',
+                            style: {
+                                shape: "ellipse",
+                                width: 24,
+                                height: 24,
+                                "background-color": "#fed7aa",
+                                "border-color": "#f97316",
+                                label: ""
+                            }
+                        },
+                        {
+                            selector: "node:selected",
+                            style: {
+                                "border-width": 4,
+                                "border-color": "#0f172a"
+                            }
+                        },
+                        {
+                            selector: "edge",
+                            style: {
+                                width: 2.2,
+                                "line-color": "#cbd5e1",
+                                "target-arrow-color": "#cbd5e1",
+                                "target-arrow-shape": "triangle",
+                                "curve-style": "taxi",
+                                "taxi-direction": "downward",
+                                opacity: 0.9
+                            }
+                        },
+                        {
+                            selector: 'edge[edgeType = "DEFINES"]',
+                            style: {
+                                "line-color": "#94a3b8",
+                                "target-arrow-color": "#94a3b8"
+                            }
+                        },
+                        {
+                            selector: 'edge[edgeType = "CALLS"]',
+                            style: {
+                                width: 2.6,
+                                "line-color": "#c084fc",
+                                "target-arrow-color": "#c084fc"
+                            }
+                        },
+                        {
+                            selector: 'edge[edgeType = "INHERITS"]',
+                            style: {
+                                width: 2.6,
+                                "line-style": "dashed",
+                                "line-color": "#34d399",
+                                "target-arrow-color": "#34d399"
+                            }
+                        }
+                    ]
+                });
+
+                cy.on("tap", "node", (event) => {
+                    setSelectedNodeId(event.target.id());
+                });
+
+                cyRef.current = cy;
+
+                return () => {
+                    cyRef.current = null;
+                    cy.destroy();
+                };
+            }, [viewModel]);
+
+            useEffect(() => {
+                if (!cyRef.current || !selectedNodeId) return;
+                cyRef.current.elements().unselect();
+                const node = cyRef.current.$id(selectedNodeId);
+                if (node.length) {
+                    node.select();
+                    cyRef.current.center(node);
+                }
+            }, [selectedNodeId]);
+
+            if (!(graph?.nodes || []).length) {
+                return <EmptyState title="Knowledge graph not available" body="Run Analyze to build the graph, then inspect dependencies and relationships here." />;
+            }
+
+            const selectedNode = selectedNodeId ? viewModel.nodeLookup.get(selectedNodeId) : null;
+            const selectedRelations = selectedNodeId ? (viewModel.relationsByNode.get(selectedNodeId) || []) : [];
+
+            return (
+                <div className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-4">
+                        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Files</div>
+                            <div className="mt-2 text-2xl font-semibold text-blue-950">{viewModel.stats.fileCount}</div>
+                        </div>
+                        <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">Classes</div>
+                            <div className="mt-2 text-2xl font-semibold text-violet-950">{viewModel.stats.classCount}</div>
+                        </div>
+                        <div className="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-700">Functions</div>
+                            <div className="mt-2 text-2xl font-semibold text-orange-950">{viewModel.stats.functionCount}</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Focused View</div>
+                            <div className="mt-2 text-sm leading-6 text-slate-700">
+                                Showing {viewModel.stats.shownNodes} nodes and {viewModel.stats.shownEdges} relationships.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
+                        <div className="flex flex-wrap gap-2">
+                            {viewModel.files.map((file) => (
+                                <button
+                                    key={file.id}
+                                    type="button"
+                                    onClick={() => setSelectedNodeId(file.id)}
+                                    className={classNames(
+                                        "rounded-full border px-3 py-1.5 text-sm transition",
+                                        selectedNodeId === file.id ? "border-blue-600 bg-blue-600 text-white" : "border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-300"
+                                    )}
+                                >
+                                    {file.label}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="mt-4 text-sm leading-6 text-mute">
+                            This architecture view hides {viewModel.stats.hiddenImports} import node(s) and {viewModel.stats.hiddenVariables} variable node(s) so the graph stays readable.
+                        </p>
+                    </div>
+
+                    <div ref={containerRef} className="h-[680px] w-full rounded-3xl border border-line bg-slate-50 shadow-soft" />
+
+                    <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                        <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Legend</div>
+                            <div className="mt-4 space-y-3 text-sm text-slate-700">
+                                <div className="flex items-center gap-3">
+                                    <span className="h-4 w-7 rounded-md border border-blue-400 bg-blue-200" />
+                                    <span>Files</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="h-4 w-7 rounded-md border border-violet-500 bg-violet-200" />
+                                    <span>Classes</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="h-4 w-4 rounded-full border border-orange-500 bg-orange-200" />
+                                    <span>Functions</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Selection</div>
+                            {selectedNode ? (
+                                <div className="mt-4 space-y-4">
+                                    <div>
+                                        <div className="text-lg font-semibold text-slate-900">{selectedNode.label}</div>
+                                        <div className="mt-1 text-sm text-mute">{selectedNode.metaLabel || "No path metadata available."}</div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-slate-700">{selectedNode.type}</span>
+                                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{selectedRelations.length} linked nodes</span>
+                                    </div>
+                                    <div className="grid gap-2 md:grid-cols-2">
+                                        {selectedRelations.slice(0, 8).map((relation, index) => (
+                                            <button
+                                                key={`${relation.nodeId}-${index}`}
+                                                type="button"
+                                                onClick={() => setSelectedNodeId(relation.nodeId)}
+                                                className="flex w-full items-center justify-between rounded-2xl border border-line bg-slate-50 px-3 py-2 text-left text-sm hover:border-slate-300 hover:bg-white"
+                                            >
+                                                <span className="truncate text-slate-700">{relation.label}</span>
+                                                <span className="ml-3 rounded-full bg-white px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                                    {relation.type}
+                                                </span>
+                                            </button>
+                                        ))}
+                                        {!selectedRelations.length && (
+                                            <p className="text-sm text-mute">No visible relationships for this node in the focused architecture view.</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="mt-4 text-sm text-mute">Select a file, class, or function to inspect its visible relationships.</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function AstNode({ label, value, depth = 0 }) {
+            if (Array.isArray(value)) {
+                return (
+                    <details className="rounded-xl border border-line bg-white p-3">
+                        <summary className="cursor-pointer text-sm font-medium text-slate-800">{label} ({value.length})</summary>
+                        <div className="mt-3 space-y-2 pl-4">
+                            {value.map((item, index) => (
+                                <AstNode key={`${label}-${index}`} label={`${label.slice(0, -1) || "item"} ${index + 1}`} value={item} depth={depth + 1} />
+                            ))}
+                        </div>
+                    </details>
+                );
+            }
+
+            if (value && typeof value === "object") {
+                return (
+                    <details className="rounded-xl border border-line bg-white p-3" open={depth === 0}>
+                        <summary className="cursor-pointer text-sm font-medium text-slate-800">{label}</summary>
+                        <div className="mt-3 space-y-2 pl-4">
+                            {Object.entries(value).map(([key, nestedValue]) => (
+                                <AstNode key={`${label}-${key}`} label={key} value={nestedValue} depth={depth + 1} />
+                            ))}
+                        </div>
+                    </details>
+                );
+            }
+
+            return (
+                <div className="rounded-xl border border-line bg-white px-3 py-2 text-sm text-slate-700">
+                    <span className="font-medium text-slate-900">{label}:</span> {String(value ?? "None")}
+                </div>
+            );
+        }
+
+        function PlanCard({ item, selected, onSelect }) {
+            return (
+                <button
+                    type="button"
+                    onClick={() => onSelect(item.id)}
+                    className={classNames(
+                        "w-full rounded-2xl border p-4 text-left transition hover:border-emerald-300 hover:bg-emerald-50/40",
+                        selected ? "border-emerald-400 bg-emerald-50" : "border-line bg-white"
+                    )}
+                >
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">{item.name}</div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.12em] text-emerald-700">{item.type}</div>
+                        </div>
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">{item.requirementId}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{item.reason}</p>
+                </button>
+            );
+        }
+
+        function CodeViewer({ item, mode, onModeChange }) {
+            const codeRef = useRef(null);
+            const language = getCodeLanguage(item?.file_path || "");
+            const rawContent = mode === "diff" ? item?.diff : item?.generated_code;
+            const content = useMemo(() => sanitizeCodeDisplay(rawContent), [rawContent]);
+
+            useEffect(() => {
+                if (codeRef.current && window.Prism) {
+                    window.Prism.highlightAllUnder(codeRef.current);
+                }
+            }, [content, language, mode]);
+
+            if (!item) {
+                return <EmptyState title="No generated code yet" body="Run the pipeline to generate code, then inspect the produced source and diff here." />;
+            }
+
+            return (
+                <div className="space-y-4">
+                    <div className="rounded-3xl border border-line bg-white p-5 shadow-soft">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-slate-900">{item.file_path || "Generated code"}</h3>
+                                <p className="mt-1 text-sm text-mute">Traceability: sourced from {item.requirement_id || "the selected requirement"}.</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button type="button" onClick={() => onModeChange("code")} className={classNames("rounded-full px-4 py-2 text-sm font-medium", mode === "code" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>View Code</button>
+                                <button type="button" onClick={() => onModeChange("diff")} className={classNames("rounded-full px-4 py-2 text-sm font-medium", mode === "diff" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>View Diff</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div ref={codeRef} className="code-scroll overflow-hidden rounded-3xl border border-slate-900 bg-slate-950 shadow-soft">
+                        <div className="editor-shell overflow-hidden rounded-3xl">
+                            <div className="editor-toolbar flex items-center justify-between border-b border-slate-700 px-5 py-3 text-sm text-slate-300">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="h-2.5 w-2.5 rounded-full bg-rose-400"></span>
+                                        <span className="h-2.5 w-2.5 rounded-full bg-amber-300"></span>
+                                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                                    </div>
+                                    <span className="rounded-full border border-slate-600 bg-slate-800/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
+                                        {mode === "diff" ? "Diff" : language}
+                                    </span>
+                                </div>
+                                <span className="truncate pl-4 text-slate-400">{item.file_path || "output"}</span>
+                            </div>
+                            <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-2 text-xs text-slate-400">
+                                <span>{mode === "diff" ? "Unified diff" : "Generated source"}</span>
+                                <span>{content.split("\n").length} lines</span>
+                            </div>
+                            <pre className={`language-${mode === "diff" ? "clike" : language}`}><code className={`language-${mode === "diff" ? "clike" : language}`}>{content || "No content available."}</code></pre>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function ReviewList({ items, selectedId, onOpenReview }) {
+            if (!items.length) {
+                return <EmptyState title="Review queue is empty" body="Generated code will appear here after the pipeline stores it for HITL review." />;
+            }
+
+            return (
+                <div className="space-y-4">
+                    {items.map((item) => {
+                        const selected = item.id === selectedId;
+                        const displayPath = shortenPath(item.file_path || "Unknown file", 3);
+                        return (
+                            <div key={item.id} className={classNames("rounded-3xl border p-5 shadow-soft", selected ? "border-stageReview bg-teal-50/40" : "border-line bg-white")}>
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{item.requirement_id || "Requirement"}</div>
+                                        <h3 className="mt-2 break-words text-lg font-semibold text-slate-900">{displayPath}</h3>
+                                        <p className="mt-2 text-sm text-slate-700">{item.confidence_explanation || "Stored for human review."}</p>
+                                    </div>
+                                    <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{item.status || "PENDING"}</span>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                    <button type="button" onClick={() => onOpenReview(item.id, "code")} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white">View Code</button>
+                                    <button type="button" onClick={() => onOpenReview(item.id, "diff")} className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">View Diff</button>
+                                    <button type="button" onClick={() => onOpenReview(item.id, "code")} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">Open Review Page</button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        function OutputViewer(props) {
+            const {
+                step,
+                analysisData,
+                planItems,
+                selectedRequirementId,
+                onSelectRequirement,
+                reviewItems,
+                selectedReviewItem,
+                codeViewMode,
+                setCodeViewMode,
+                onOpenReview
+            } = props;
+
+            if (step === "analyze") {
+                if (!analysisData) {
+                    return <EmptyState title="Analyze output" body="Run Analyze to see the codebase summary and module list." />;
+                }
+                const moduleSummaries = getModuleSummaries(analysisData);
+                return (
+                    <div className="space-y-4">
+                        <div className="rounded-3xl border border-line bg-white p-6 shadow-soft">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-slate-900">Codebase overview</h3>
+                                    <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700">{analysisData.overall_summary || "No summary available."}</p>
+                                </div>
+                                <div className="grid min-w-[240px] grid-cols-3 gap-3">
+                                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">Modules</div>
+                                        <div className="mt-2 text-2xl font-semibold text-blue-950">{analysisData.graph_stats?.files || moduleSummaries.length}</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">Classes</div>
+                                        <div className="mt-2 text-2xl font-semibold text-violet-950">{analysisData.graph_stats?.classes || 0}</div>
+                                    </div>
+                                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Functions</div>
+                                        <div className="mt-2 text-2xl font-semibold text-emerald-950">{analysisData.graph_stats?.functions || 0}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="rounded-3xl border border-line bg-white p-6 shadow-soft">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <h3 className="text-lg font-semibold text-slate-900">Module summaries</h3>
+                                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{moduleSummaries.length} modules</span>
+                            </div>
+                            <div className="mt-4 grid gap-4">
+                                {moduleSummaries.slice(0, 16).map((module) => (
+                                    <div key={module.path} className="rounded-2xl border border-line bg-slate-50 px-5 py-4">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div>
+                                                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-mute">Module</div>
+                                                <div className="mt-1 text-base font-semibold text-slate-900">{shortenPath(module.path, 3)}</div>
+                                                <div className="mt-1 text-xs text-mute">{module.path}</div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">{module.class_count} classes</span>
+                                                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">{module.function_count} functions</span>
+                                                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">{module.import_count} imports</span>
+                                            </div>
+                                        </div>
+                                        <p className="mt-4 text-sm leading-7 text-slate-700">{module.summary || "Summary not available."}</p>
+                                        {!module.summary_available && (
+                                            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                                LLM summary was unavailable for this module, so this entry may be more basic than usual.
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (step === "kg" || step === "ast") {
+                const targetView = step === "ast" ? "ast" : "kg";
+                return (
+                    <div className="rounded-3xl border border-line bg-white p-8 shadow-soft">
+                        <div className="max-w-2xl">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Architecture Explorer</div>
+                            <h3 className="mt-3 text-2xl font-semibold text-slate-900">{targetView === "kg" ? "Knowledge graph" : "Semantic AST"}</h3>
+                            <p className="mt-3 text-sm leading-7 text-slate-700">
+                                {targetView === "kg"
+                                    ? "The knowledge graph is available on the dedicated architecture page so it can use the full width of the screen."
+                                    : "The semantic AST is available on the dedicated architecture page so it stays optional and easier to inspect."}
+                            </p>
+                            <div className="mt-6 flex flex-wrap gap-3">
+                                <a href={`/analysis?view=${targetView}`} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white">
+                                    Open {targetView === "kg" ? "Knowledge Graph" : "AST"} Page
+                                </a>
+                                <a href="/analysis?view=kg" className="rounded-2xl bg-slate-100 px-5 py-3 text-sm font-medium text-slate-700">Open KG</a>
+                                <a href="/analysis?view=ast" className="rounded-2xl bg-slate-100 px-5 py-3 text-sm font-medium text-slate-700">Open AST</a>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (step === "plan") {
+                if (!planItems.length) {
+                    return <EmptyState title="Planning view" body="Add requirements on the left to see the generated plan cards." />;
+                }
+                return (
+                    <div className="grid gap-4">
+                        {planItems.map((item) => (
+                            <PlanCard key={item.id} item={item} selected={selectedRequirementId === item.id} onSelect={onSelectRequirement} />
+                        ))}
+                    </div>
+                );
+            }
+
+            if (step === "code") {
+                return <CodeViewer item={selectedReviewItem} mode={codeViewMode} onModeChange={setCodeViewMode} />;
+            }
+
+            return (
+                <ReviewList
+                    items={reviewItems.filter((item) => (item.status || "PENDING") === "PENDING")}
+                    selectedId={selectedReviewItem?.id}
+                    onOpenReview={onOpenReview}
+                />
+            );
+        }
+
+        function App() {
+            const folderInputRef = useRef(null);
+            const [uploadedSource, setUploadedSource] = useState(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                return saved ? JSON.parse(saved) : null;
+            });
+            const [requirementsMode, setRequirementsMode] = useState("form");
+            const [requirementsText, setRequirementsText] = useState("");
+            const [formRequirements, setFormRequirements] = useState(() => [createEmptyRequirement(0)]);
+            const [analysisData, setAnalysisData] = useState(null);
+            const [reviewItems, setReviewItems] = useState([]);
+            const [selectedStep, setSelectedStep] = useState("analyze");
+            const [selectedRequirementId, setSelectedRequirementId] = useState(null);
+            const [selectedReviewItemId, setSelectedReviewItemId] = useState(null);
+            const [codeViewMode, setCodeViewMode] = useState("code");
+            const [stageStatus, setStageStatus] = useState({
+                analyze: "idle",
+                kg: "idle",
+                ast: "idle",
+                plan: "idle",
+                code: "idle",
+                review: "idle"
+            });
+            const [uploading, setUploading] = useState(false);
+            const [githubCloneStatus, setGithubCloneStatus] = useState("idle");
+            const [sourceMode, setSourceMode] = useState(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return "local";
+                try {
+                    const parsed = JSON.parse(saved);
+                    return parsed?.type === "github" ? "github" : "local";
+                } catch (error) {
+                    return "local";
+                }
+            });
+            const [githubRepoUrl, setGithubRepoUrl] = useState(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return "";
+                try {
+                    const parsed = JSON.parse(saved);
+                    return parsed?.repoUrl || "";
+                } catch (error) {
+                    return "";
+                }
+            });
+            const [githubBranch, setGithubBranch] = useState(() => {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (!saved) return "main";
+                try {
+                    const parsed = JSON.parse(saved);
+                    return parsed?.branch || "main";
+                } catch (error) {
+                    return "main";
+                }
+            });
+            const [statusMessage, setStatusMessage] = useState("Select a codebase folder and choose a stage.");
+            const [errorMessage, setErrorMessage] = useState("");
+            const [pipelineLogs, setPipelineLogs] = useState([]);
+            const [savingRequirements, setSavingRequirements] = useState(false);
+            const [requirementsSaveMessage, setRequirementsSaveMessage] = useState("");
+            const [loadingRequirements, setLoadingRequirements] = useState(false);
+
+            const effectiveRequirementsText = useMemo(
+                () => requirementsMode === "json" ? requirementsText : serializeFormRequirements(formRequirements),
+                [requirementsMode, requirementsText, formRequirements]
+            );
+            const requirements = useMemo(() => parseRequirements(effectiveRequirementsText), [effectiveRequirementsText]);
+            const pendingReviewItems = useMemo(
+                () => reviewItems.filter((item) => (item.status || "PENDING") === "PENDING"),
+                [reviewItems]
+            );
+            const selectedReviewItem = useMemo(
+                () => pendingReviewItems.find((item) => item.id === selectedReviewItemId) || pendingReviewItems[0] || null,
+                [pendingReviewItems, selectedReviewItemId]
+            );
+            const pendingReviewCount = useMemo(
+                () => reviewItems.filter((item) => (item.status || "PENDING") === "PENDING").length,
+                [reviewItems]
+            );
+            const reviewedCount = useMemo(
+                () => reviewItems.filter((item) => (item.status || "PENDING") !== "PENDING").length,
+                [reviewItems]
+            );
+            const planItems = useMemo(
+                () => requirements.map((requirement) => ({
+                    id: requirement.id,
+                    requirementId: requirement.id,
+                    name: requirement.file_hint || requirement.id,
+                    type: requirement.type,
+                    reason: requirement.description
+                })),
+                [requirements]
+            );
+            const githubCloneMeta = useMemo(() => {
+                if (githubCloneStatus === "cloning") return { label: "Cloning", tone: "bg-amber-100 text-amber-700" };
+                if (githubCloneStatus === "ready") return { label: "Clone complete", tone: "bg-emerald-100 text-emerald-700" };
+                if (githubCloneStatus === "error") return { label: "Clone failed", tone: "bg-rose-100 text-rose-700" };
+                if (uploadedSource?.type === "github") return { label: "Pending clone", tone: "bg-slate-100 text-slate-700" };
+                return null;
+            }, [githubCloneStatus, uploadedSource]);
+
+            useEffect(() => {
+                if (folderInputRef.current) {
+                    folderInputRef.current.setAttribute("webkitdirectory", "");
+                    folderInputRef.current.setAttribute("directory", "");
+                }
+            }, []);
+
+            useEffect(() => {
+                if (uploadedSource) {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(uploadedSource));
+                } else {
+                    localStorage.removeItem(STORAGE_KEY);
+                }
+            }, [uploadedSource]);
+
+            useEffect(() => {
+                loadRequirementsForSource(uploadedSource);
+            }, [uploadedSource]);
+
+            useEffect(() => {
+                if (!selectedRequirementId && requirements.length) {
+                    setSelectedRequirementId(requirements[0].id);
+                }
+            }, [requirements, selectedRequirementId]);
+
+            useEffect(() => {
+                fetchChanges();
+            }, []);
+
+            async function parseJsonResponse(response) {
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.error || data.detail || "Request failed");
+                }
+                return data;
+            }
+
+            async function fetchChanges() {
+                try {
+                    const response = await fetch("/changes");
+                    const data = await response.json();
+                    setReviewItems(data);
+                    const pending = data.filter((item) => (item.status || "PENDING") === "PENDING");
+                    if (pending.length) {
+                        setSelectedReviewItemId((current) => {
+                            if (current && pending.some((item) => item.id === current)) {
+                                return current;
+                            }
+                            return pending[0].id;
+                        });
+                        setStageStatus((current) => ({ ...current, review: "success" }));
+                    } else {
+                        setSelectedReviewItemId(null);
+                    }
+                } catch (error) {
+                    setReviewItems([]);
+                    setSelectedReviewItemId(null);
+                }
+            }
+
+            async function loadRequirementsForSource(source = uploadedSource) {
+                setLoadingRequirements(true);
+                setRequirementsSaveMessage("");
+                try {
+                    const sourceKey = getSourceKey(source);
+                    const response = await fetch(`/requirements/load?source_key=${encodeURIComponent(sourceKey || "")}`);
+                    const data = await parseJsonResponse(response);
+
+                    if (data.found) {
+                        const rawText = data.raw_text || "";
+                        const normalizedItems = parseRequirements(rawText).map((item, index) => normalizeRequirementEntry(item, index));
+                        setRequirementsText(rawText);
+                        setFormRequirements(normalizedItems.length ? normalizedItems : [createEmptyRequirement(0)]);
+                        setRequirementsMode(data.mode === "json" ? "json" : "form");
+                        setRequirementsSaveMessage(`Loaded ${data.item_count || normalizedItems.length} saved requirement(s) from DB.`);
+                    } else {
+                        setRequirementsText("");
+                        setFormRequirements([createEmptyRequirement(0)]);
+                        setRequirementsMode("form");
+                    }
+                } catch (error) {
+                    setRequirementsText("");
+                    setFormRequirements([createEmptyRequirement(0)]);
+                    setRequirementsMode("form");
+                    setRequirementsSaveMessage("");
+                } finally {
+                    setLoadingRequirements(false);
+                }
+            }
+
+            function openAnalysisPage(view = "kg") {
+                window.location.href = `/analysis?view=${encodeURIComponent(view === "ast" ? "ast" : "kg")}`;
+            }
+
+            function buildCodebaseSourcePayload(source = uploadedSource) {
+                if (!source) return null;
+                if (source.type === "github") {
+                    return {
+                        type: "github",
+                        repo_url: source.repoUrl,
+                        branch: source.branch || "main"
+                    };
+                }
+                return {
+                    type: "local",
+                    path: source.serverPath
+                };
+            }
+
+            function getAnalysisCacheKey(source = uploadedSource) {
+                if (!source) return "";
+                if (source.type === "github") {
+                    return `github:${source.repoUrl || ""}#${source.branch || "main"}`;
+                }
+                return `local:${source.serverPath || ""}`;
+            }
+
+            function getSourceKey(source = uploadedSource) {
+                if (!source) return "";
+                if (source.type === "github") {
+                    return `github:${source.repoUrl || ""}#${source.branch || "main"}`;
+                }
+                return `local:${source.serverPath || ""}`;
+            }
+
+            async function activateCodebase(nextSource) {
+                const currentKey = getSourceKey(uploadedSource);
+                const nextKey = getSourceKey(nextSource);
+                const response = await fetch("/codebase/change", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        source_key: nextKey || null,
+                        codebase_path: nextSource?.type === "local" ? nextSource.serverPath : null,
+                        source_type: nextSource?.type || null,
+                        repo_url: nextSource?.repoUrl || null,
+                        branch: nextSource?.branch || null
+                    })
+                });
+                const data = await parseJsonResponse(response);
+
+                if (currentKey !== nextKey) {
+                    localStorage.removeItem(ANALYSIS_CACHE_KEY);
+                    setAnalysisData(null);
+                    setPipelineLogs([]);
+                    setReviewItems([]);
+                    setSelectedReviewItemId(null);
+                    setSelectedStep("analyze");
+                    setStageStatus({
+                        analyze: "idle",
+                        kg: "idle",
+                        ast: "idle",
+                        plan: requirements.length ? "success" : "idle",
+                        code: "idle",
+                        review: "idle"
+                    });
+                }
+
+                setUploadedSource(nextSource);
+                await fetchChanges();
+                return data;
+            }
+
+            function switchRequirementsMode(nextMode) {
+                if (nextMode === requirementsMode) return;
+
+                if (nextMode === "form") {
+                    const parsed = parseRequirements(requirementsText);
+                    setFormRequirements(parsed.length
+                        ? parsed.map((item, index) => normalizeRequirementEntry(item, index))
+                        : [createEmptyRequirement(0)]
+                    );
+                } else {
+                    setRequirementsText(serializeFormRequirements(formRequirements));
+                }
+
+                setRequirementsMode(nextMode === "json" ? "json" : "form");
+            }
+
+            function updateFormRequirement(index, field, value) {
+                setFormRequirements((current) => current.map((item, itemIndex) => (
+                    itemIndex === index
+                        ? { ...item, [field]: value }
+                        : item
+                )));
+            }
+
+            function addFormRequirement() {
+                setFormRequirements((current) => [...current, createEmptyRequirement(current.length)]);
+            }
+
+            function removeFormRequirement(index) {
+                setFormRequirements((current) => {
+                    const next = current.filter((_, itemIndex) => itemIndex !== index);
+                    if (!next.length) {
+                        return [createEmptyRequirement(0)];
+                    }
+                    return next.map((item, itemIndex) => ({
+                        ...item,
+                        id: item.id || `REQ-${itemIndex + 1}`
+                    }));
+                });
+            }
+
+            function openReviewPage(id, mode = "code") {
+                setSelectedReviewItemId(id);
+                setCodeViewMode(mode);
+                setSelectedStep("code");
+                window.location.href = `/review?id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`;
+            }
+
+            function openReviewHub() {
+                window.location.href = "/review";
+            }
+
+            function handleStageNavigation(stepId) {
+                if (stepId === "kg" || stepId === "ast") {
+                    openAnalysisPage(stepId);
+                    return;
+                }
+                if (stepId === "code" || stepId === "review") {
+                    if (selectedReviewItem?.id) {
+                        openReviewPage(selectedReviewItem.id, stepId === "review" ? "diff" : "code");
+                    } else {
+                        openReviewHub();
+                    }
+                    return;
+                }
+                setSelectedStep(stepId);
+            }
+
+            async function handleFolderChange(event) {
+                const files = Array.from(event.target.files || []);
+                if (!files.length) return;
+
+                setUploading(true);
+                setErrorMessage("");
+                setStatusMessage("Uploading selected codebase folder...");
+
+                try {
+                    const displayName = files[0].webkitRelativePath ? files[0].webkitRelativePath.split("/")[0] : "Selected folder";
+                    const formData = new FormData();
+                    files.forEach((file) => {
+                        formData.append("files", file, file.webkitRelativePath || file.name);
+                    });
+
+                    const response = await fetch("/codebase/upload", {
+                        method: "POST",
+                        body: formData
+                    });
+                    const data = await parseJsonResponse(response);
+                    const nextSource = {
+                        type: "local",
+                        displayName,
+                        label: data.label || displayName,
+                        fileCount: data.file_count || files.length,
+                        serverPath: data.path
+                    };
+                    await activateCodebase(nextSource);
+                    setGithubCloneStatus("idle");
+                    setStatusMessage(`Codebase ready: ${displayName}`);
+                } catch (error) {
+                    setErrorMessage(error.message);
+                    setStatusMessage("Codebase upload failed.");
+                } finally {
+                    setUploading(false);
+                    event.target.value = "";
+                }
+            }
+
+            async function handleGithubConnect() {
+                const repoUrl = githubRepoUrl.trim();
+                const branch = githubBranch.trim() || "main";
+                if (!repoUrl) {
+                    setErrorMessage("Enter a GitHub repository URL first.");
+                    return;
+                }
+
+                setErrorMessage("");
+                const nextSource = {
+                    type: "github",
+                    displayName: repoUrl,
+                    label: repoUrl.replace(/^https?:\/\/github\.com\//, ""),
+                    repoUrl,
+                    branch
+                };
+                await activateCodebase(nextSource);
+                setGithubCloneStatus("idle");
+                setStatusMessage(`GitHub repo ready: ${repoUrl} (${branch})`);
+            }
+
+            async function runAnalyze() {
+                const codebaseSource = buildCodebaseSourcePayload();
+                if (!codebaseSource) {
+                    setErrorMessage("Choose a local folder or connect a GitHub repository before running Analyze.");
+                    return;
+                }
+
+                setErrorMessage("");
+                setSelectedStep("analyze");
+                if (codebaseSource.type === "github") {
+                    setGithubCloneStatus("cloning");
+                    setStatusMessage("Cloning GitHub repo and analyzing codebase...");
+                } else {
+                    setStatusMessage("Analyzing codebase and building the knowledge graph...");
+                }
+                setStageStatus((current) => ({ ...current, analyze: "loading", kg: "loading", ast: "loading" }));
+
+                try {
+                    const response = await fetch("/analyze-codebase", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            codebase_source: codebaseSource
+                        })
+                    });
+                    const data = await parseJsonResponse(response);
+                    setAnalysisData(data);
+                    safeWriteAnalysisCache(getAnalysisCacheKey(), data, false);
+                    if (codebaseSource.type === "github") {
+                        setGithubCloneStatus("ready");
+                        setStatusMessage("GitHub clone complete. Analyze completed successfully.");
+                    } else {
+                        setStatusMessage("Analyze completed successfully.");
+                    }
+                    setStageStatus((current) => ({ ...current, analyze: "success", kg: "success", ast: "success" }));
+                } catch (error) {
+                    setErrorMessage(error.message);
+                    if (codebaseSource.type === "github") {
+                        setGithubCloneStatus("error");
+                    }
+                    setStageStatus((current) => ({ ...current, analyze: "error", kg: "error", ast: "error" }));
+                    setStatusMessage("Analyze failed.");
+                }
+            }
+
+            async function runPipeline() {
+                const codebaseSource = buildCodebaseSourcePayload();
+                if (!codebaseSource) {
+                    setErrorMessage("Choose a local folder or connect a GitHub repository before running the pipeline.");
+                    return;
+                }
+
+                setErrorMessage("");
+                setSelectedStep("plan");
+                if (codebaseSource.type === "github") {
+                    setGithubCloneStatus("cloning");
+                    setStatusMessage("Cloning GitHub repo and running pipeline...");
+                } else {
+                    setStatusMessage("Running pipeline from planning to review...");
+                }
+                setPipelineLogs([]);
+                setStageStatus((current) => ({ ...current, plan: "loading", code: "loading", review: "loading" }));
+
+                try {
+                    const response = await fetch("/run-pipeline", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            codebase_source: codebaseSource,
+                            requirements_text: effectiveRequirementsText || null,
+                            requirements_path: "data/reqs.json"
+                        })
+                    });
+                    const data = await parseJsonResponse(response);
+                    setPipelineLogs(data.logs || []);
+                    if (codebaseSource.type === "github") {
+                        setGithubCloneStatus("ready");
+                        setStatusMessage("GitHub clone complete. Pipeline finished and review artifacts were stored.");
+                    } else {
+                        setStatusMessage("Pipeline completed and review artifacts were stored.");
+                    }
+                    setStageStatus((current) => ({ ...current, plan: "success", code: "success", review: "success" }));
+                    await fetchChanges();
+                    setSelectedStep("review");
+                } catch (error) {
+                    setErrorMessage(error.message);
+                    if (codebaseSource.type === "github") {
+                        setGithubCloneStatus("error");
+                    }
+                    setPipelineLogs((current) => [...current, `Pipeline error: ${error.message}`]);
+                    setStageStatus((current) => ({ ...current, plan: "error", code: "error", review: "error" }));
+                    setStatusMessage("Pipeline failed.");
+                }
+            }
+
+            async function saveRequirementsToDb() {
+                setSavingRequirements(true);
+                setRequirementsSaveMessage("");
+                try {
+                    const response = await fetch("/requirements/save", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            raw_text: effectiveRequirementsText,
+                            mode: requirementsMode,
+                            source_key: getSourceKey(uploadedSource) || null,
+                            source_type: uploadedSource?.type || null,
+                            source_label: uploadedSource?.label || uploadedSource?.displayName || null
+                        })
+                    });
+                    const data = await parseJsonResponse(response);
+                    setRequirementsSaveMessage(data.message || "Requirements saved to database.");
+                } catch (error) {
+                    setRequirementsSaveMessage(error.message || "Failed to save requirements.");
+                } finally {
+                    setSavingRequirements(false);
+                }
+            }
+
+            return (
+                <div className="min-h-screen px-6 py-8">
+                    <div className="mx-auto max-w-[1600px] space-y-6">
+                        <header className="rounded-[32px] border border-line bg-white px-8 py-7 shadow-soft">
+                            <div className="flex flex-wrap items-start justify-between gap-6">
+                                <div className="max-w-3xl">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.2em] text-stageAnalyze">Req-to-Code</div>
+                                    <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Code Analyzer + Generator + Reviewer</h1>
+                                </div>
+                                <div className="grid gap-3 sm:min-w-[280px]">
+                                    <div className="rounded-2xl border border-line bg-slate-50 px-4 py-3">
+                                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Selected Codebase</div>
+                                        <div className="mt-2 text-sm font-medium text-slate-900">{uploadedSource?.displayName || "No folder selected"}</div>
+                                        <div className="mt-1 text-xs text-mute">{uploadedSource ? `${uploadedSource.fileCount} files staged for processing` : "Use the folder picker to begin"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </header>
+
+                        <input ref={folderInputRef} type="file" multiple className="hidden" onChange={handleFolderChange} />
+
+                        <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">HITL Review</div>
+                                    <h2 className="mt-2 text-2xl font-semibold text-slate-900">Human review queue</h2>
+                                    <p className="mt-2 text-sm leading-6 text-mute">
+                                        Open the dedicated review page to inspect generated code, compare diffs, and accept or reject changes.
+                                    </p>
+                                </div>
+                                <button type="button" onClick={openReviewHub} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white">
+                                    Open HITL Page
+                                </button>
+                            </div>
+                            <div className="mt-5 grid gap-4 md:grid-cols-4">
+                                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">Pending</div>
+                                    <div className="mt-2 text-2xl font-semibold text-emerald-950">{pendingReviewCount}</div>
+                                </div>
+                                <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-teal-700">Reviewed</div>
+                                    <div className="mt-2 text-2xl font-semibold text-teal-950">{reviewedCount}</div>
+                                </div>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Total attempts</div>
+                                    <div className="mt-2 text-2xl font-semibold text-slate-950">{reviewItems.length}</div>
+                                </div>
+                                <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">State</div>
+                                    <div className="mt-2 text-sm leading-6 text-blue-950">
+                                        {reviewItems.length ? "Review page has stored code review items ready." : "Review page is empty until the pipeline creates code for review."}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)_420px]">
+                            <aside className="space-y-6">
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div>
+                                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Codebase</div>
+                                        <h2 className="mt-2 text-xl font-semibold text-slate-900">Choose local folder or GitHub repo</h2>
+                                        <p className="mt-2 text-sm leading-6 text-mute">Use the native folder picker for local codebases, or connect a GitHub repository and let the backend clone it for analysis and generation.</p>
+                                    </div>
+                                    <div className="mt-5 space-y-4">
+                                        <div className="flex gap-2 rounded-2xl bg-slate-100 p-1">
+                                            <button type="button" onClick={() => setSourceMode("local")} className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", sourceMode === "local" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600")}>Local Folder</button>
+                                            <button type="button" onClick={() => setSourceMode("github")} className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", sourceMode === "github" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600")}>GitHub Repo</button>
+                                        </div>
+
+                                        {sourceMode === "local" ? (
+                                            <button type="button" disabled={uploading} onClick={() => folderInputRef.current?.click()} className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white">
+                                                {uploading ? "Uploading folder..." : "Choose Repo Folder"}
+                                            </button>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                <input
+                                                    type="url"
+                                                    value={githubRepoUrl}
+                                                    onChange={(event) => setGithubRepoUrl(event.target.value)}
+                                                    placeholder="https://github.com/user/repo"
+                                                    className="w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={githubBranch}
+                                                    onChange={(event) => setGithubBranch(event.target.value)}
+                                                    placeholder="main"
+                                                    className="w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                />
+                                                <button type="button" onClick={handleGithubConnect} className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white">
+                                                    Use GitHub Repo
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        <div className="rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                            <div className="font-medium text-slate-900">{uploadedSource?.label || "No codebase chosen yet"}</div>
+                                            <div className="mt-1 text-xs text-mute">
+                                                {uploadedSource?.type === "github"
+                                                    ? `GitHub branch: ${uploadedSource.branch || "main"}`
+                                                    : (uploadedSource?.serverPath || "The selected local folder will be staged automatically for the pipeline.")}
+                                            </div>
+                                            {githubCloneMeta && (
+                                                <div className="mt-3 flex items-center justify-between gap-3">
+                                                    <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-mute">Clone status</span>
+                                                    <span className={classNames("rounded-full px-2.5 py-1 text-xs font-medium", githubCloneMeta.tone)}>{githubCloneMeta.label}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Requirements</div>
+                                            <h2 className="mt-2 text-xl font-semibold text-slate-900">Readable requirement cards</h2>
+                                        </div>
+                                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{requirements.length} items</span>
+                                    </div>
+
+                                    <details className="mt-5 rounded-2xl border border-line bg-slate-50 p-4">
+                                        <summary className="cursor-pointer text-sm font-medium text-slate-900">
+                                            Edit requirement input
+                                        </summary>
+
+                                        <div className="mt-4 flex gap-2 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200">
+                                            <button
+                                                type="button"
+                                                onClick={() => switchRequirementsMode("form")}
+                                                className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", requirementsMode === "form" ? "bg-slate-900 text-white" : "text-slate-600")}
+                                            >
+                                                Form
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => switchRequirementsMode("json")}
+                                                className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", requirementsMode === "json" ? "bg-slate-900 text-white" : "text-slate-600")}
+                                            >
+                                                JSON
+                                            </button>
+                                        </div>
+
+                                        <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-6 text-blue-900">
+                                            {requirementsMode === "form"
+                                                ? "Use the form to add normal text requirements with optional type, ID, and file hint."
+                                                : (
+                                                    <>
+                                                        Supports JSON or normal typed text.
+                                                        <br />
+                                                        JSON example:{" "}
+                                                        <code>
+                                                            [{`{"id":"REQ-1","type":"PARTIAL","description":"Add search","file_hint":"app.py"}`}]
+                                                        </code>
+                                                        <br />
+                                                    </>
+                                                )}
+                                        </div>
+
+                                        {requirementsMode === "form" ? (
+                                            <div className="mt-4 space-y-3">
+                                                {formRequirements.map((requirement, index) => (
+                                                    <div key={`${requirement.id}-${index}`} className="rounded-2xl border border-line bg-white p-4">
+                                                        <div className="grid gap-3">
+                                                            <div className="grid gap-3 sm:grid-cols-[1fr_130px]">
+                                                                <input
+                                                                    type="text"
+                                                                    value={requirement.id}
+                                                                    onChange={(event) => updateFormRequirement(index, "id", event.target.value)}
+                                                                    placeholder={`REQ-${index + 1}`}
+                                                                    className="w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                                />
+                                                                <select
+                                                                    value={requirement.type}
+                                                                    onChange={(event) => updateFormRequirement(index, "type", event.target.value)}
+                                                                    className="w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                                >
+                                                                    <option value="FIT">FIT</option>
+                                                                    <option value="PARTIAL">PARTIAL</option>
+                                                                    <option value="GAP">GAP</option>
+                                                                </select>
+                                                            </div>
+                                                            <textarea
+                                                                value={requirement.description}
+                                                                onChange={(event) => updateFormRequirement(index, "description", event.target.value)}
+                                                                placeholder="Describe the requirement in normal text."
+                                                                className="min-h-[96px] w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm leading-6 outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                            />
+                                                            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                                                                <input
+                                                                    type="text"
+                                                                    value={requirement.file_hint}
+                                                                    onChange={(event) => updateFormRequirement(index, "file_hint", event.target.value)}
+                                                                    placeholder="Optional file hint, for example app.py"
+                                                                    className="w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-stageAnalyze focus:bg-white"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => removeFormRequirement(index)}
+                                                                    className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700"
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+
+                                                <button
+                                                    type="button"
+                                                    onClick={addFormRequirement}
+                                                    className="w-full rounded-2xl border border-dashed border-line bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                                                >
+                                                    Add requirement
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <textarea
+                                                value={requirementsText}
+                                                onChange={(event) => setRequirementsText(event.target.value)}
+                                                className="mt-4 min-h-[180px] w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-stageAnalyze"
+                                            />
+                                        )}
+
+                                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                                            <button
+                                                type="button"
+                                                disabled={savingRequirements || !requirements.length}
+                                                onClick={saveRequirementsToDb}
+                                                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                                {savingRequirements ? "Saving..." : "Save To DB"}
+                                            </button>
+                                            {requirementsSaveMessage && (
+                                                <div className="text-sm text-slate-700">{requirementsSaveMessage}</div>
+                                            )}
+                                        </div>
+                                    </details>
+
+                                    <div className="mt-5 space-y-3">
+                                        {requirements.length ? requirements.map((requirement) => (
+                                            <RequirementCard key={requirement.id} requirement={requirement} selected={selectedRequirementId === requirement.id} onSelect={setSelectedRequirementId} />
+                                        )) : (
+                                            <EmptyState title="No requirements parsed" body="Paste JSON or pipe-delimited requirements and preview them here as cards." />
+                                        )}
+                                    </div>
+                                </section>
+                            </aside>
+                            <main className="space-y-6">
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="flex flex-wrap items-start justify-between gap-5">
+                                        <div>
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Actions</div>
+                                            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Analyze or run the pipeline</h2>
+                                            <p className="mt-2 text-sm leading-6 text-mute">Use Analyze for summaries and architecture data, then Run Pipeline to generate code and send it into HITL review.</p>
+                                        </div>
+                                        <div className="flex flex-wrap gap-3">
+                                            <button type="button" onClick={runAnalyze} className="rounded-2xl bg-stageAnalyze px-5 py-3 text-sm font-medium text-white">Run Analyze</button>
+                                            <button type="button" onClick={runPipeline} className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white">Run Pipeline</button>
+                                            <button type="button" onClick={() => openAnalysisPage("kg")} className="rounded-2xl bg-slate-100 px-5 py-3 text-sm font-medium text-slate-700">Open Architecture</button>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="mb-4 flex items-center justify-between gap-4">
+                                        <div>
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Output Viewer</div>
+                                            <h2 className="mt-1 text-2xl font-semibold text-slate-900">{STAGES.find((step) => step.id === selectedStep)?.label} output</h2>
+                                        </div>
+                                    </div>
+                                    <OutputViewer
+                                        step={selectedStep}
+                                        analysisData={analysisData}
+                                        planItems={planItems}
+                                        selectedRequirementId={selectedRequirementId}
+                                        onSelectRequirement={setSelectedRequirementId}
+                                        reviewItems={pendingReviewItems}
+                                        selectedReviewItem={selectedReviewItem}
+                                        codeViewMode={codeViewMode}
+                                        setCodeViewMode={setCodeViewMode}
+                                        onOpenReview={openReviewPage}
+                                    />
+                                </section>
+                            </main>
+
+                            <aside className="space-y-6">
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Live feedback</div>
+                                    <h2 className="mt-2 text-xl font-semibold text-slate-900">System messages</h2>
+                                    {errorMessage ? (
+                                        <button type="button" onClick={() => selectedReviewItem?.id ? openReviewPage(selectedReviewItem.id, "code") : openReviewHub()} className="mt-4 w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left text-sm text-rose-700 hover:border-rose-300">
+                                            {errorMessage}
+                                        </button>
+                                    ) : (
+                                        <button type="button" onClick={() => pendingReviewCount ? openReviewHub() : handleStageNavigation(selectedStep)} className="mt-4 w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-left text-sm text-slate-700 hover:border-slate-300 hover:bg-white">
+                                            {statusMessage}
+                                        </button>
+                                    )}
+                                    <div className="mt-4 space-y-3">
+                                        {STAGES.map((stage) => {
+                                            const meta = getStatusMeta(stageStatus[stage.id]);
+                                            return (
+                                                <button
+                                                    key={stage.id}
+                                                    type="button"
+                                                    onClick={() => handleStageNavigation(stage.id)}
+                                                    className="flex w-full items-center justify-between rounded-2xl border border-line bg-slate-50 px-4 py-3 text-left hover:border-slate-300 hover:bg-white"
+                                                >
+                                                    <span className="text-sm font-medium text-slate-900">{stage.label}</span>
+                                                    <span className={classNames("inline-flex shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium", meta.tone)}>{meta.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Pipeline Log</div>
+                                    <h2 className="mt-2 text-xl font-semibold text-slate-900">Execution details</h2>
+                                    <div className="mt-4 overflow-hidden rounded-3xl border border-slate-900 bg-slate-950">
+                                        <pre className="max-h-[420px] overflow-auto px-4 py-4 text-xs leading-6 text-slate-200">{pipelineLogs.length ? pipelineLogs.join("\n") : "Logs will appear here after you run the pipeline."}</pre>
+                                    </div>
+                                </section>
+                            </aside>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+</body>
+</html>

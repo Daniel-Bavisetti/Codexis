@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Req-to-Code Review</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        panel: "#ffffff",
+                        base: "#f4f6fb",
+                        ink: "#0f172a",
+                        mute: "#64748b",
+                        line: "#dbe4f0",
+                        review: "#0f766e"
+                    },
+                    boxShadow: {
+                        soft: "0 20px 45px rgba(15, 23, 42, 0.08)"
+                    }
+                }
+            }
+        };
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <style>
+        body { background: linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%); }
+        .editor-shell {
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 28%),
+                linear-gradient(180deg, #111827 0%, #0f172a 100%);
+        }
+        .editor-toolbar {
+            background: linear-gradient(180deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+        }
+        .code-scroll pre[class*="language-"] {
+            margin: 0;
+            background: transparent;
+            min-height: 360px;
+            padding: 1.5rem 1.75rem 1.75rem;
+            overflow: auto;
+            font-family: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+            font-size: 14px;
+            line-height: 1.75;
+            letter-spacing: -0.01em;
+            tab-size: 4;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+        .code-scroll code[class*="language-"] {
+            font-family: inherit;
+            white-space: pre;
+        }
+        .code-scroll .token.comment,
+        .code-scroll .token.prolog,
+        .code-scroll .token.doctype,
+        .code-scroll .token.cdata {
+            color: #94a3b8;
+        }
+        .code-scroll .token.punctuation {
+            color: #cbd5e1;
+        }
+        .code-scroll .token.property,
+        .code-scroll .token.tag,
+        .code-scroll .token.boolean,
+        .code-scroll .token.number,
+        .code-scroll .token.constant,
+        .code-scroll .token.symbol,
+        .code-scroll .token.deleted {
+            color: #fda4af;
+        }
+        .code-scroll .token.selector,
+        .code-scroll .token.attr-name,
+        .code-scroll .token.string,
+        .code-scroll .token.char,
+        .code-scroll .token.builtin,
+        .code-scroll .token.inserted {
+            color: #86efac;
+        }
+        .code-scroll .token.operator,
+        .code-scroll .token.entity,
+        .code-scroll .token.url,
+        .code-scroll .language-css .token.string,
+        .code-scroll .style .token.string {
+            color: #fcd34d;
+            background: transparent;
+        }
+        .code-scroll .token.atrule,
+        .code-scroll .token.attr-value,
+        .code-scroll .token.keyword {
+            color: #93c5fd;
+        }
+        .code-scroll .token.function,
+        .code-scroll .token.class-name {
+            color: #c4b5fd;
+        }
+        .code-scroll .token.regex,
+        .code-scroll .token.important,
+        .code-scroll .token.variable {
+            color: #fdba74;
+        }
+        .code-scroll .token.important,
+        .code-scroll .token.bold {
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-ink">
+    <div id="root"></div>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+
+    <script type="text/babel">
+        const { useEffect, useMemo, useRef, useState } = React;
+
+        function classNames(...values) {
+            return values.filter(Boolean).join(" ");
+        }
+
+        function normalizeDisplayPath(value = "") {
+            const normalized = String(value || "").replaceAll("\\", "/");
+            if (!normalized) return "Unknown";
+
+            if (normalized.includes("data/codebase/")) {
+                return normalized.split("data/codebase/")[1];
+            }
+
+            const parts = normalized.split("/").filter(Boolean);
+            const tempIndex = parts.findIndex((part) => part.startsWith("req-to-code-upload-") || part.startsWith("req-to-code-"));
+            if (tempIndex >= 0 && tempIndex + 1 < parts.length) {
+                return parts.slice(tempIndex + 1).join("/");
+            }
+
+            const persistentIndex = parts.findIndex((part) => part === "github-repos");
+            if (persistentIndex >= 0 && persistentIndex + 1 < parts.length) {
+                return parts.slice(persistentIndex + 1).join("/");
+            }
+
+            return normalized;
+        }
+
+        function shortenPath(value = "", segments = 3) {
+            const normalized = normalizeDisplayPath(value);
+            const parts = normalized.split("/").filter(Boolean);
+            if (parts.length <= segments) return normalized || "Unknown";
+            return parts.slice(-segments).join("/");
+        }
+
+        function getCodeLanguage(filePath = "") {
+            const normalized = filePath.toLowerCase();
+            if (normalized.endsWith(".py")) return "python";
+            if (normalized.endsWith(".js") || normalized.endsWith(".ts") || normalized.endsWith(".tsx") || normalized.endsWith(".jsx")) return "javascript";
+            if (normalized.endsWith(".json")) return "json";
+            if (normalized.endsWith(".html") || normalized.endsWith(".xml")) return "markup";
+            return "clike";
+        }
+
+        function sanitizeCodeDisplay(content = "") {
+            return String(content || "")
+                .replace(/\u00A0/g, " ")
+                .replace(/\u200B/g, "")
+                .replace(/\u2018|\u2019/g, "'")
+                .replace(/\u201C|\u201D/g, '"')
+                .replace(/\u2013|\u2014|\u2212/g, "-")
+                .replace(/\u2264/g, "<=")
+                .replace(/\u2265/g, ">=")
+                .replace(/\u00D7/g, "*")
+                .replace(/\u00F7/g, "/");
+        }
+
+        function readQueryState() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                id: params.get("id"),
+                mode: params.get("mode") === "diff" ? "diff" : "code"
+            };
+        }
+
+        function writeQueryState(id, mode) {
+            const params = new URLSearchParams(window.location.search);
+            if (id) {
+                params.set("id", id);
+            } else {
+                params.delete("id");
+            }
+            params.set("mode", mode === "diff" ? "diff" : "code");
+            const query = params.toString();
+            const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+            window.history.replaceState({}, "", nextUrl);
+        }
+
+        function EmptyState({ title, body }) {
+            return (
+                <div className="rounded-3xl border border-dashed border-line bg-white p-8 text-center shadow-soft">
+                    <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-mute">{body}</p>
+                </div>
+            );
+        }
+
+        function QueueItem({ item, selected, onOpen }) {
+            const displayPath = shortenPath(item.file_path || "Unknown file", 3);
+            const status = item.status || "PENDING";
+            const isReviewed = status !== "PENDING";
+            const statusTone = status === "ACCEPTED"
+                ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                : status === "REJECTED"
+                    ? "bg-rose-100 text-rose-800 border-rose-200"
+                    : "bg-slate-100 text-slate-700 border-slate-200";
+
+            return (
+                <button
+                    type="button"
+                    onClick={() => onOpen(item.id, "code")}
+                    className={classNames(
+                        "w-full rounded-3xl border p-4 text-left shadow-soft transition",
+                        selected
+                            ? "border-review bg-teal-50/60"
+                            : isReviewed
+                                ? "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100"
+                                : "border-line bg-white hover:border-slate-300 hover:bg-slate-50"
+                    )}
+                >
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-700">{item.requirement_id || "Requirement"}</div>
+                            <h3 className="mt-2 break-words text-base font-semibold !text-black text-black">{displayPath}</h3>
+                        </div>
+                        <span className={classNames("inline-flex shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold", statusTone)}>{status}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{item.confidence_explanation || "Stored for human review."}</p>
+                </button>
+            );
+        }
+
+        function ReviewWorkspace({ item, mode, onModeChange, onAccept, onReject, busy }) {
+            const codeRef = useRef(null);
+            const [feedback, setFeedback] = useState("");
+            const language = getCodeLanguage(item?.file_path || "");
+            const rawContent = mode === "diff" ? item?.diff : item?.generated_code;
+            const content = useMemo(() => sanitizeCodeDisplay(rawContent), [rawContent]);
+            const displayPath = useMemo(() => normalizeDisplayPath(item?.file_path || "Generated code"), [item?.file_path]);
+            const isPending = (item?.status || "PENDING") === "PENDING";
+
+            useEffect(() => {
+                if (codeRef.current && window.Prism) {
+                    window.Prism.highlightAllUnder(codeRef.current);
+                }
+            }, [content, language, mode]);
+
+            useEffect(() => {
+                setFeedback("");
+            }, [item?.id]);
+
+            if (!item) {
+                return <EmptyState title="No review selected" body="Choose a generated change from the queue to inspect code or diff and complete HITL review." />;
+            }
+
+            return (
+                <div className="space-y-5">
+                    <div className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Review target</div>
+                                <h2 className="mt-2 break-words text-2xl font-semibold text-slate-900">{displayPath}</h2>
+                                <p className="mt-2 text-sm leading-6 text-mute">Requirement: {item.requirement_id || "Unknown"}.</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button type="button" onClick={() => onModeChange("code")} className={classNames("rounded-full px-4 py-2 text-sm font-medium", mode === "code" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>View Code</button>
+                                <button type="button" onClick={() => onModeChange("diff")} className={classNames("rounded-full px-4 py-2 text-sm font-medium", mode === "diff" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>View Diff</button>
+                            </div>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                            <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{item.status || "PENDING"}</span>
+                            <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{item.confidence ? `Confidence ${item.confidence}` : "Awaiting review"}</span>
+                        </div>
+                    </div>
+
+                    <div ref={codeRef} className="code-scroll overflow-hidden rounded-[28px] border border-slate-900 bg-slate-950 shadow-soft">
+                        <div className="editor-shell overflow-hidden rounded-[28px]">
+                            <div className="editor-toolbar flex items-center justify-between border-b border-slate-700 px-5 py-3 text-sm text-slate-300">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="h-2.5 w-2.5 rounded-full bg-rose-400"></span>
+                                        <span className="h-2.5 w-2.5 rounded-full bg-amber-300"></span>
+                                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400"></span>
+                                    </div>
+                                    <span className="rounded-full border border-slate-600 bg-slate-800/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
+                                        {mode === "diff" ? "Diff" : language}
+                                    </span>
+                                </div>
+                                <span className="truncate pl-4 text-slate-400">{displayPath}</span>
+                            </div>
+                            <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-2 text-xs text-slate-400">
+                                <span>{mode === "diff" ? "Unified diff" : "Generated source"}</span>
+                                <span>{content.split("\n").length} lines</span>
+                            </div>
+                            <pre className={`language-${mode === "diff" ? "clike" : language}`}><code className={`language-${mode === "diff" ? "clike" : language}`}>{content || "No content available."}</code></pre>
+                        </div>
+                    </div>
+
+                    {isPending ? (
+                        <div className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Decision</div>
+                            <div className="mt-4 flex flex-wrap gap-3">
+                                <button type="button" disabled={busy} onClick={() => onAccept(item.id)} className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60">Approve and Apply</button>
+                            </div>
+                            <div className="mt-4 space-y-3">
+                                <textarea
+                                    value={feedback}
+                                    onChange={(event) => setFeedback(event.target.value)}
+                                    className="min-h-[120px] w-full rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-review focus:bg-white"
+                                    placeholder="Add rejection feedback for the next iteration."
+                                />
+                                <button type="button" disabled={busy || !feedback.trim()} onClick={() => onReject(item.id, feedback)} className="rounded-2xl bg-rose-50 px-5 py-3 text-sm font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-60">Reject with feedback</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Review outcome</div>
+                            <div className="mt-4 rounded-2xl border border-line bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
+                                {item.status === "ACCEPTED"
+                                    ? "This change was accepted during HITL review and is kept here for reference."
+                                    : "This change was rejected during HITL review and is kept here with its generated code and diff for reference."}
+                            </div>
+                            {item.feedback_comments && (
+                                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-900">
+                                    {item.feedback_comments}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function App() {
+            const initialQuery = useMemo(() => readQueryState(), []);
+            const [items, setItems] = useState([]);
+            const [selectedId, setSelectedId] = useState(initialQuery.id);
+            const [mode, setMode] = useState(initialQuery.mode);
+            const [busy, setBusy] = useState(false);
+            const [statusMessage, setStatusMessage] = useState("Loading review queue...");
+            const [errorMessage, setErrorMessage] = useState("");
+            const [queueView, setQueueView] = useState("pending");
+
+            const pendingItems = useMemo(
+                () => items.filter((item) => (item.status || "PENDING") === "PENDING"),
+                [items]
+            );
+            const reviewedItems = useMemo(
+                () => items.filter((item) => (item.status || "PENDING") !== "PENDING"),
+                [items]
+            );
+            const visibleItems = useMemo(
+                () => queueView === "reviewed" ? reviewedItems : pendingItems,
+                [queueView, pendingItems, reviewedItems]
+            );
+            const selectedItem = useMemo(
+                () => visibleItems.find((item) => String(item.id) === String(selectedId)) || visibleItems[0] || null,
+                [visibleItems, selectedId]
+            );
+
+            useEffect(() => {
+                fetchChanges();
+            }, []);
+
+            useEffect(() => {
+                writeQueryState(selectedItem?.id || "", mode);
+            }, [selectedItem, mode]);
+
+            async function fetchChanges(preferredId = null) {
+                try {
+                    const response = await fetch("/changes");
+                    const data = await response.json();
+                    setItems(data);
+                    const pending = data.filter((item) => (item.status || "PENDING") === "PENDING");
+                    const reviewed = data.filter((item) => (item.status || "PENDING") !== "PENDING");
+                    const chosen = preferredId || selectedId || initialQuery.id;
+                    const chosenItem = data.find((item) => String(item.id) === String(chosen));
+                    const nextView = chosenItem && (chosenItem.status || "PENDING") !== "PENDING"
+                        ? "reviewed"
+                        : (pending.length ? "pending" : "reviewed");
+                    const nextItems = nextView === "reviewed" ? reviewed : pending;
+
+                    setQueueView(nextView);
+                    if (nextItems.length) {
+                        const match = nextItems.find((item) => String(item.id) === String(chosen));
+                        setSelectedId(match ? match.id : nextItems[0].id);
+                        setStatusMessage(
+                            nextView === "reviewed"
+                                ? `${reviewed.length} reviewed change(s) available for history view.`
+                                : `${pending.length} pending change(s) available for review.`
+                        );
+                    } else {
+                        setSelectedId(null);
+                        setStatusMessage(nextView === "reviewed" ? "No reviewed items yet." : "No pending review items right now.");
+                    }
+                    setErrorMessage("");
+                } catch (error) {
+                    setItems([]);
+                    setSelectedId(null);
+                    setErrorMessage("Unable to load review queue.");
+                }
+            }
+
+            function openItem(id, nextMode = "code") {
+                setSelectedId(id);
+                setMode(nextMode === "diff" ? "diff" : "code");
+            }
+
+            async function acceptChange(id) {
+                setBusy(true);
+                setErrorMessage("");
+                setStatusMessage("Applying approved change...");
+                try {
+                    const response = await fetch(`/changes/${id}/accept`, { method: "POST" });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error(data.detail || data.error || "Approve failed");
+                    }
+                    setStatusMessage(data.message || "Change accepted.");
+                    await fetchChanges(id);
+                } catch (error) {
+                    setErrorMessage(error.message);
+                } finally {
+                    setBusy(false);
+                }
+            }
+
+            async function rejectChange(id, comment) {
+                setBusy(true);
+                setErrorMessage("");
+                setStatusMessage("Submitting rejection feedback...");
+                try {
+                    const response = await fetch(`/changes/${id}/reject`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ comment })
+                    });
+                    const data = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        throw new Error(data.detail || data.error || "Reject failed");
+                    }
+                    setStatusMessage("Feedback stored for the next pipeline iteration.");
+                    await fetchChanges(id);
+                } catch (error) {
+                    setErrorMessage(error.message);
+                } finally {
+                    setBusy(false);
+                }
+            }
+
+            return (
+                <div className="px-4 py-6 sm:px-6 lg:px-8">
+                    <div className="mx-auto max-w-[1600px] space-y-6">
+                        <header className="rounded-[32px] border border-line bg-white p-6 shadow-soft">
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                                <div>
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-mute">Req-to-Code</div>
+                                    <h1 className="mt-2 text-3xl font-semibold text-slate-900">Human-in-the-loop review</h1>
+                                    <p className="mt-2 max-w-3xl text-sm leading-6 text-mute">Inspect generated code, compare diffs, and decide whether each attempt should be accepted into the staged codebase or sent back with feedback.</p>
+                                </div>
+                                <a href="/" className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white">Back to Dashboard</a>
+                            </div>
+                        </header>
+
+                        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+                            <aside className="space-y-6">
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Review Queue</div>
+                                            <h2 className="mt-2 text-xl font-semibold text-slate-900">{queueView === "reviewed" ? "Reviewed history" : "Pending changes"}</h2>
+                                        </div>
+                                        <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{visibleItems.length} items</span>
+                                    </div>
+                                    <div className="mt-4 flex gap-2 rounded-2xl bg-slate-100 p-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => setQueueView("pending")}
+                                            className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", queueView === "pending" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600")}
+                                        >
+                                            Pending ({pendingItems.length})
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQueueView("reviewed")}
+                                            className={classNames("flex-1 rounded-2xl px-3 py-2 text-sm font-medium", queueView === "reviewed" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600")}
+                                        >
+                                            Reviewed ({reviewedItems.length})
+                                        </button>
+                                    </div>
+                                    <div className="mt-4 space-y-3">
+                                        {visibleItems.length ? visibleItems.map((item) => (
+                                            <QueueItem key={item.id} item={item} selected={selectedItem?.id === item.id} onOpen={openItem} />
+                                        )) : (
+                                            <EmptyState
+                                                title={queueView === "reviewed" ? "No reviewed items yet" : "Queue is empty"}
+                                                body={queueView === "reviewed" ? "Accepted and rejected HITL decisions will appear here for later inspection." : "Run the pipeline to create reviewable code generation attempts."}
+                                            />
+                                        )}
+                                    </div>
+                                </section>
+                            </aside>
+
+                            <main className="space-y-6">
+                                <section className="rounded-[28px] border border-line bg-white p-6 shadow-soft">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-mute">Live status</div>
+                                    {errorMessage ? (
+                                        <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{errorMessage}</div>
+                                    ) : (
+                                        <div className="mt-4 rounded-2xl border border-line bg-slate-50 px-4 py-3 text-sm text-slate-700">{statusMessage}</div>
+                                    )}
+                                </section>
+
+                                <ReviewWorkspace
+                                    item={selectedItem}
+                                    mode={mode}
+                                    onModeChange={setMode}
+                                    onAccept={acceptChange}
+                                    onReject={rejectChange}
+                                    busy={busy}
+                                />
+                            </main>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+</body>
+</html>

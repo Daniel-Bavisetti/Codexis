@@ -1,0 +1,1 @@
+# BookBarn models package.
