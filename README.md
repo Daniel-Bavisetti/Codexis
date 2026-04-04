@@ -1,484 +1,339 @@
-# Req-to-Code POC V2
+# Req-to-Code
 
-FastAPI-based requirement-to-code pipeline with knowledge-graph analysis, semantic retrieval, SQLite-backed change tracking, and a human-in-the-loop review flow.
+Req-to-Code is a FastAPI-based developer tool that analyzes a codebase, builds code intelligence artifacts, generates implementation attempts from requirements, and routes those attempts through a human-in-the-loop review workflow.
 
-## Overview
+The application includes:
 
-The system analyzes a target codebase under `data/codebase/`, parses requirements from `data/reqs.json`, retrieves relevant context, generates candidate code, reviews it, calculates impact and confidence, stores every attempt in SQLite, and waits for a human decision before applying code changes.
+- a dashboard for codebase selection, requirements entry, analysis, and pipeline execution
+- an architecture page for Knowledge Graph and Semantic AST exploration
+- a dedicated HITL review page with pending and reviewed history views
+- SQLite-backed persistence for attempts, feedback, requirements snapshots, and graph snapshots
 
-Core capabilities:
+## What the system does
 
-- Knowledge graph-based code analysis
-- Semantic retrieval over indexed code chunks
-- Generator and reviewer agent loop
-- SQLite persistence for changes, attempts, feedback, and graph snapshots
-- HITL approval and rejection flow
-- Visual dashboard, dedicated review workspace, and visual analysis page
+At a high level, Req-to-Code follows this flow:
 
-## Current UI
+1. Select a codebase from a local folder or a GitHub repository.
+2. Analyze the codebase to build:
+   - a Semantic AST
+   - a Knowledge Graph
+   - module summaries
+   - a project-level codebase overview
+3. Enter requirements as either:
+   - a normal form-based list
+   - raw JSON / text input
+4. Save requirements to the database for the selected codebase.
+5. Run the generation pipeline.
+6. Review generated code in the HITL workspace.
+7. Accept or reject changes.
+8. Inspect reviewed history later from the same review page.
 
-Routes served by FastAPI:
+## Core features
+
+- Local folder selection using the browser's native folder picker
+- GitHub repository cloning into a persistent local cache outside this repo
+- Codebase-aware reset behavior when the active repo changes
+- Semantic AST generation
+- Knowledge Graph generation
+- Module-level LLM summaries
+- Requirements entry as form or JSON/text
+- Requirements persistence in SQLite
+- Retrieval-augmented code generation
+- Reviewer agent with confidence, issues, dependency findings, and security findings
+- Impact analysis and risk scoring
+- HITL approval/rejection flow
+- Reviewed history for accepted and rejected items
+
+## UI routes
 
 - `/`
-  Dashboard overview
-- `/review`
-  Dedicated HITL review page for approve/reject decisions
+  Main dashboard
 - `/analysis`
-  Visual knowledge graph and analysis page
+  Architecture explorer for Knowledge Graph and Semantic AST
+- `/review`
+  Human-in-the-loop review workspace with pending and reviewed tabs
 
-Static files:
+## How codebase selection works
 
-- `static/index.html`
-- `static/review.html`
-- `static/analysis.html`
+Req-to-Code supports two codebase sources.
 
-## API Endpoints
+### 1. Local folder
 
-### `POST /analyze-codebase`
+The dashboard uses a native folder picker:
 
-Runs analysis for a target code directory.
+- HTML folder input with `webkitdirectory`
+- browser-selected folder is uploaded to the backend
+- the backend stages it in a temp area for processing
 
-Request:
+### 2. GitHub repository
+
+The dashboard accepts:
+
+- repository URL
+- branch
+
+The backend then:
+
+- clones the repository into a persistent local cache
+- updates the cached clone on future runs
+- falls back to the remote default branch if the requested branch does not exist
+
+By default, persistent GitHub clones are stored under:
+
+`C:\Users\<user>\AppData\Local\ReqToCode\github-repos\`
+
+This path can be changed with:
+
+`REQ_TO_CODE_REPO_ROOT`
+
+## Generated analysis artifacts
+
+Every analysis writes artifacts into the selected codebase under:
+
+`.req-to-code/`
+
+Artifacts include:
+
+- `knowledge_graph.json`
+- `semantic_ast.json`
+- `analysis_summary.json`
+
+These are written for both:
+
+- explicit analysis runs
+- pipeline runs
+
+## Requirements input
+
+Requirements can be entered in two modes from the dashboard.
+
+### Form mode
+
+Each requirement can include:
+
+- ID
+- Type (`FIT`, `PARTIAL`, `GAP`)
+- Description
+- File hint
+
+### JSON mode
+
+The editor accepts:
+
+- JSON arrays
+- grouped JSON objects with `FIT`, `PARTIAL`, and `GAP`
+- plain text formats already supported by the parser
+
+Examples:
 
 ```json
-{
-  "path": "data/codebase"
-}
-```
-
-Response shape:
-
-```json
-{
-  "overall_summary": "Knowledge graph built for 13 file(s), 4 class(es), 25 function(s), and 9 import(s).",
-  "files": [],
-  "semantic_ast": [],
-  "knowledge_graph": {
-    "nodes": [],
-    "edges": []
-  },
-  "graph_stats": {
-    "files": 13,
-    "classes": 4,
-    "functions": 25,
-    "imports": 9
+[
+  {
+    "id": "REQ-101",
+    "type": "PARTIAL",
+    "description": "Add search support to the API",
+    "file_hint": "app.py"
   }
-}
+]
 ```
 
-### `POST /run-pipeline`
-
-Runs the generation pipeline over `data/reqs.json`.
-
-Response shape:
-
-```json
-{
-  "status": "success",
-  "logs": [
-    "[10%] Loading multi-language codebase...",
-    "[20%] Building semantic AST + knowledge graph..."
-  ],
-  "time_seconds": 1.23
-}
+```text
+PARTIAL: Add search support to the API
 ```
 
-### `GET /changes`
-
-Returns persisted changes, attempts, reviews, and impact analysis for the UI.
-
-### `POST /changes/{id}/accept`
-
-Applies the generated code to disk if the change passes safety checks and risk threshold checks.
-
-### `POST /changes/{id}/reject`
-
-Stores human feedback and marks the current change rejected.
-
-Request:
-
-```json
-{
-  "comment": "Add stronger validation for this edge case."
-}
+```text
+GAP | Create audit logging service | services/audit.py
 ```
 
-## Execution Flow
+### Saving requirements
 
-The main runtime flow is implemented in [`services/pipeline.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/pipeline.py).
+The dashboard includes a `Save To DB` action.
 
-Pipeline stages:
+Saved requirement snapshots are stored in SQLite and keyed to the active codebase source, so when you come back to the same repo the dashboard loads the saved requirements instead of falling back to sample data.
 
-1. Load codebase from `data/codebase/`
-2. Build semantic AST and knowledge graph
-3. Save graph snapshot to SQLite
-4. Index code chunks into the semantic vector store
-5. Parse requirements from `data/reqs.json`
-6. Check LLM runtime readiness
-7. Retrieve relevant context for each requirement
-8. Generate candidate output
-9. Review and validate generated code
-10. Compute diff, impact analysis, and confidence
-11. Persist attempt and mark it `PENDING`
-12. Wait for human review
+## Pipeline stages
 
-## Analysis and Knowledge Graph
+The backend pipeline lives in `services/pipeline.py`.
 
-### Where analysis is generated
+Main stages:
 
-Analysis is generated in `run_analysis()` in [`services/pipeline.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/pipeline.py).
+1. Load codebase
+2. Build Semantic AST and Knowledge Graph
+3. Persist graph snapshot
+4. Write `.req-to-code` artifacts
+5. Index semantic retrieval chunks
+6. Parse requirements
+7. Check LLM runtime
+8. Retrieve contextual code snippets
+9. Generate candidate code
+10. Validate generated output
+11. Review generated output
+12. Compute diff, impact, and confidence
+13. Save the attempt for HITL review
 
-It returns:
+## Requirement types
 
-- `overall_summary`
-- `semantic_ast`
-- `knowledge_graph`
-- `graph_stats`
+### FIT
 
-### Where the text summary appears
+Analysis-only requirement.
 
-The text summary shown to the user comes from `overall_summary`.
+Used when the system should inspect or explain existing code behavior without generating a code modification.
 
-It is displayed in:
+### PARTIAL
 
-- dashboard `/`
-  `Knowledge graph summary`
-- analysis page `/analysis`
-  `What the analysis found`
+Modify an existing file or implementation.
 
-### What the graph contains
+### GAP
 
-Graph building lives in [`services/knowledge_graph.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/knowledge_graph.py).
+Create a new implementation where the current codebase does not cover the requested behavior.
 
-Nodes include:
+## HITL review flow
 
-- files
-- classes
-- functions
-- variables
-- imports
+Generated attempts are stored in SQLite and surfaced in `/review`.
 
-Edges include:
+### Pending tab
 
-- `DEFINES`
-- `CALLS`
-- `IMPORTS`
-- `INHERITS`
+Shows items waiting for a decision.
 
-Example:
+Users can:
 
-```json
-{
-  "nodes": [
-    {
-      "id": "func:data/codebase/services/order_service.py::create_order",
-      "type": "function"
-    }
-  ],
-  "edges": [
-    {
-      "from": "file:data/codebase/services/order_service.py",
-      "to": "func:data/codebase/services/order_service.py::create_order",
-      "type": "DEFINES"
-    }
-  ]
-}
-```
+- view generated code
+- view diff
+- approve and apply
+- reject with feedback
 
-### Multi-language parsing
+### Reviewed tab
 
-Language parsing is handled by [`services/language_engine.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/language_engine.py).
+Shows items that were already reviewed.
 
-Currently supported:
+Users can revisit:
 
-- Python
-- JavaScript-style syntax via regex extraction
-- Go-style syntax via regex extraction
-- Java-style syntax via regex extraction
+- accepted items
+- rejected items
+- past generated code
+- past diffs
+- rejection feedback
 
-Python uses `ast`; the other languages currently use lightweight parsing heuristics.
+## Codebase-change reset behavior
 
-## Semantic Retrieval
+When the active codebase changes, Req-to-Code clears codebase-dependent state to avoid mixing data between repositories.
 
-Semantic retrieval is implemented in [`services/vector_store.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/vector_store.py).
+Reset behavior includes:
 
-Current behavior:
+- clearing review attempts from SQLite
+- clearing feedback history tied to the previous codebase
+- clearing graph snapshots
+- clearing cached file summaries
+- removing generated `.req-to-code` artifacts
+- removing `.backups`
+- removing staged temp uploads when applicable
 
-- chunks file-level and symbol-level code
-- creates deterministic local embeddings
-- ranks by cosine similarity
-- boosts matches when the file hint matches the chunk path
+This behavior is coordinated through:
 
-This is an in-repo semantic store implementation, not FAISS or Chroma.
+- `services/change_manager.py`
+- `POST /codebase/change`
 
-## Generator and Reviewer
+## Persistence
 
-### Generator
+### SQLite database
 
-Implemented in [`agents/generator_agent.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/agents/generator_agent.py).
+Database path:
 
-Generator prompt inputs:
+`data/changes.db`
 
-- requirement payload
-- retrieved semantic context
-- semantic AST summary
-- knowledge graph summary
-- learning context
-- previous rejection history
-- reviewer feedback
+Initialized in:
 
-### Reviewer
+- `models/db.py`
+- FastAPI startup in `main.py`
 
-Implemented in [`agents/reviewer_agent.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/agents/reviewer_agent.py).
-
-Reviewer output shape:
-
-```json
-{
-  "issues": [],
-  "suggestions": [],
-  "dependency_violations": [],
-  "security_findings": [],
-  "confidence": 0.82,
-  "verdict": "PASS"
-}
-```
-
-Reviewer checks focus on:
-
-- logic correctness
-- style issues
-- dependency violations
-- security concerns
-
-## LLM Runtime Behavior
-
-LLM integration is handled by [`utils/llm.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/utils/llm.py).
-
-Runtime expectations:
-
-- `GEMINI_API_KEY` must be set
-- outbound HTTPS access to the Gemini REST API must be available
-
-Mock mode is only enabled when:
-
-```bash
-export ALLOW_MOCK_LLM=true
-```
-
-Without either a working Gemini setup or explicit mock mode, the pipeline stops early and returns an error instead of silently falling back.
-
-Runtime status helper:
-
-- `llm_status()`
-
-## Confidence Calculation
-
-Confidence is calculated in `_build_confidence()` in [`services/pipeline.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/pipeline.py).
-
-Inputs:
-
-- reviewer confidence
-- number of review issues
-- dependency violations
-- security findings
-- syntax validation result
-- impact risk score
-- whether feedback-aware regeneration was used
-
-The final value is clamped between `0.0` and `1.0`.
-
-## Impact Analysis
-
-Impact analysis is implemented in [`services/impact_analyzer.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/impact_analyzer.py).
-
-### Inputs
-
-- target file path
-- unified diff text
-- knowledge graph
-- optional protected file list
-
-### Outputs
-
-- `impacted_files`
-- `impacted_functions`
-- `dependency_chain`
-- `risk_score`
-- `summary`
-
-### How risk is currently calculated
-
-The current risk score is a heuristic:
-
-```python
-risk_score = min(
-    1.0,
-    0.2
-    + (0.1 * len(impacted_files))
-    + (0.07 * len(impacted_functions))
-    + (0.12 if any(item in file_path for item in protected_files) else 0.0),
-)
-```
-
-Interpretation:
-
-- base risk starts at `0.2`
-- more impacted files increase risk
-- more impacted functions increase risk
-- touching a protected file can further increase risk
-- score is capped at `1.0`
-
-### Apply blocking
-
-`apply_diff()` in [`services/change_manager.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/change_manager.py) blocks apply when:
-
-- `risk_score > IMPACT_RISK_THRESHOLD`
-
-Default:
-
-```bash
-IMPACT_RISK_THRESHOLD=0.85
-```
-
-## Human-in-the-Loop Flow
-
-The HITL workflow is split across the dashboard and dedicated review UI.
-
-### Dashboard `/`
-
-Purpose:
-
-- high-level system view
-- queue summary
-- links into detailed review
-
-### Review page `/review`
-
-Purpose:
-
-- inspect a single change
-- compare before/after code
-- inspect unified diff
-- review impact analysis
-- review attempt history
-- approve or reject with human feedback
-
-### Accept flow
-
-1. UI calls `POST /changes/{id}/accept`
-2. `apply_diff()` checks:
-   - risk threshold
-   - protected file restrictions
-   - backup creation
-3. generated code is written to disk
-4. change status is updated to `ACCEPTED`
-
-### Reject flow
-
-1. UI calls `POST /changes/{id}/reject`
-2. feedback is stored in SQLite
-3. learning memory stores rejection context
-4. later pipeline runs can use that feedback for regeneration
-
-## Database
-
-Database schema is initialized in [`models/db.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/models/db.py).
-
-Current DB path:
-
-```python
-DB_PATH = "data/changes.db"
-```
-
-### Tables
+Current tables include:
 
 - `changes`
 - `attempts`
 - `feedback`
 - `impact_analysis`
 - `graph_snapshots`
+- `file_summaries`
 - `audit_log`
+- `saved_requirements`
 
-### Initialization
+### Runtime state
 
-Initialization is triggered on FastAPI startup in [`main.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/main.py):
+The active codebase source is tracked in:
 
-```python
-@app.on_event("startup")
-def startup():
-    init_db()
-```
+`data/runtime_state.json`
 
-### Database responsibilities
+### Learning memory
 
-`changes`
+Learning history is stored in:
 
-- latest persisted state of a requirement/change
+`data/memory.json`
 
-`attempts`
+## API overview
 
-- per-attempt generated code, review, validation, impact, and confidence
+### `POST /codebase/upload`
 
-`feedback`
+Stages a locally selected folder for analysis.
 
-- human rejection and review comments
+### `POST /codebase/change`
 
-`impact_analysis`
+Marks the active codebase and clears codebase-dependent state if the repo changed.
 
-- saved impact-analysis results per attempt
+### `POST /requirements/save`
 
-`graph_snapshots`
+Saves the current requirement snapshot into SQLite.
 
-- saved graph JSON for analysis runs
+### `GET /requirements/load`
 
-`audit_log`
+Loads the saved requirement snapshot for a given codebase source key.
 
-- change and lifecycle events
+### `POST /analyze-codebase`
 
-## Learning Memory
+Runs codebase analysis and returns:
 
-Learning memory is stored in `data/memory.json` and managed by [`services/learning_engine.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/learning_engine.py).
+- `overall_summary`
+- `module_summaries`
+- `semantic_ast`
+- `knowledge_graph`
+- `graph_stats`
+- `analysis_artifact_dir`
 
-Tracked keys:
+### `POST /run-pipeline`
 
-- `successful_patterns`
-- `rejected_attempts`
-- `reviewer_feedback`
-- `attempt_log`
-- `common_issues`
+Runs the code-generation pipeline and returns:
 
-The loader normalizes older memory files and backfills missing keys so legacy `memory.json` files do not crash the pipeline.
+- pipeline status
+- pipeline logs
+- elapsed time
+- artifact directory
 
-## Target Codebase and Requirements
+### `GET /changes`
 
-### Target codebase
+Returns reviewable and reviewed change records for the UI.
 
-The current sample codebase lives in:
+### `POST /changes/{id}/accept`
 
-- `data/codebase/`
+Applies the generated code if the safety and impact checks pass.
 
-It is a small BookBarn-style Python backend with:
+### `POST /changes/{id}/reject`
 
-- `app.py`
-- `models/`
-- `repositories/`
-- `services/`
-- `utils/`
+Stores human feedback and marks the item rejected.
 
-### Requirements
+## LLM runtime
 
-Requirements are stored in:
+LLM integration is implemented in `utils/llm.py` using the Gemini REST API.
 
-- `data/reqs.json`
+Environment variables:
 
-Supported requirement types:
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL` (optional)
+- `GEMINI_API_BASE` (optional)
+- `GEMINI_TIMEOUT_SECONDS` (optional, default `180`)
+- `ALLOW_MOCK_LLM` (optional)
 
-- `FIT`
-- `PARTIAL`
-- `GAP`
+If `GEMINI_API_KEY` is not configured and mock mode is not enabled, generation and summary steps will stop with an explicit error.
 
-## Running the Project
+## Running the project
 
 ### Install dependencies
 
@@ -486,85 +341,128 @@ Supported requirement types:
 pip install -r requirements.txt
 ```
 
-### Optional Gemini dependency
+### Configure Gemini
 
-If you want real generation and review:
+Create a `.env` file in the repo root or export environment variables:
 
-```bash
-export GEMINI_API_KEY="your-gemini-key"
+```env
+GEMINI_API_KEY=your_api_key_here
 ```
 
-### Optional mock mode
+Optional:
 
-```bash
-export ALLOW_MOCK_LLM=true
+```env
+GEMINI_MODEL=gemini-2.5-flash
+GEMINI_TIMEOUT_SECONDS=180
+ALLOW_MOCK_LLM=false
 ```
 
 ### Start the server
 
-```bash
-uvicorn main:app --reload --port 5034
-```
-
-## Recommended URLs
-
-- `http://127.0.0.1:5034/`
-- `http://127.0.0.1:5034/review`
-- `http://127.0.0.1:5034/analysis`
-
-## Example Commands
-
-Analyze:
+Recommended:
 
 ```bash
-curl -X POST http://127.0.0.1:5034/analyze-codebase \
-  -H "Content-Type: application/json" \
-  -d '{"path": "data/codebase"}'
+uvicorn main:app --reload --port 5035
 ```
 
-Run pipeline:
+Or:
 
 ```bash
-curl -X POST http://127.0.0.1:5034/run-pipeline
+python main.py
 ```
 
-List changes:
+### Open the UI
+
+- [http://127.0.0.1:5035/](http://127.0.0.1:5035/)
+- [http://127.0.0.1:5035/analysis](http://127.0.0.1:5035/analysis)
+- [http://127.0.0.1:5035/review](http://127.0.0.1:5035/review)
+
+## Example requests
+
+### Analyze a local codebase
 
 ```bash
-curl -X GET http://127.0.0.1:5034/changes
+curl -X POST http://127.0.0.1:5035/analyze-codebase ^
+  -H "Content-Type: application/json" ^
+  -d "{\"codebase_source\":{\"type\":\"local\",\"path\":\"C:\\\\path\\\\to\\\\repo\"}}"
 ```
 
-Reject a change:
+### Analyze a GitHub repository
 
 ```bash
-curl -X POST http://127.0.0.1:5034/changes/7/reject \
-  -H "Content-Type: application/json" \
-  -d '{"comment": "Handle invalid input and return a clearer error."}'
+curl -X POST http://127.0.0.1:5035/analyze-codebase ^
+  -H "Content-Type: application/json" ^
+  -d "{\"codebase_source\":{\"type\":\"github\",\"repo_url\":\"https://github.com/pallets/itsdangerous\",\"branch\":\"main\"}}"
 ```
 
-Accept a change:
+### Run the pipeline
 
 ```bash
-curl -X POST http://127.0.0.1:5034/changes/7/accept
+curl -X POST http://127.0.0.1:5035/run-pipeline ^
+  -H "Content-Type: application/json" ^
+  -d "{\"requirements_text\":\"PARTIAL: Add structured logging\",\"codebase_source\":{\"type\":\"local\",\"path\":\"C:\\\\path\\\\to\\\\repo\"}}"
 ```
 
-## Known Constraints
+### Save requirements
 
-- `DB_PATH` is still a relative path
-- non-Python language support is lightweight
-- semantic retrieval uses a local deterministic embedding strategy
-- impact risk is heuristic, not learned
-- the analysis text summary is currently concise and stats-based rather than a long architecture narrative
+```bash
+curl -X POST http://127.0.0.1:5035/requirements/save ^
+  -H "Content-Type: application/json" ^
+  -d "{\"raw_text\":\"PARTIAL: Add structured logging\",\"mode\":\"form\",\"source_key\":\"local:C:\\\\path\\\\to\\\\repo\"}"
+```
 
-## Key Files
+## Project structure
 
-- [`main.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/main.py)
-- [`api/routes.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/api/routes.py)
-- [`models/db.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/models/db.py)
-- [`services/pipeline.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/pipeline.py)
-- [`services/change_manager.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/change_manager.py)
-- [`services/knowledge_graph.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/knowledge_graph.py)
-- [`services/vector_store.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/vector_store.py)
-- [`services/impact_analyzer.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/impact_analyzer.py)
-- [`services/learning_engine.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/services/learning_engine.py)
-- [`utils/llm.py`](/Users/chandrabalaji/pycharmPython/req-to-code-v2/utils/llm.py)
+```text
+.
+├── agents/              # Generator and reviewer agents
+├── api/                 # FastAPI routes
+├── data/                # SQLite DB, runtime state, memory, sample assets
+├── models/              # DB initialization
+├── services/            # Pipeline, parsing, analysis, storage, impact, reset logic
+├── static/              # Dashboard, review page, architecture page
+├── ui/                  # UI-facing presentation helpers
+├── utils/               # Gemini wrapper and shared utilities
+├── main.py              # FastAPI entry point
+└── README.md
+```
+
+## Important implementation files
+
+- `main.py`
+- `api/routes.py`
+- `models/db.py`
+- `services/pipeline.py`
+- `services/change_manager.py`
+- `services/requirements_store.py`
+- `services/knowledge_graph.py`
+- `services/ast_builder.py`
+- `services/parser.py`
+- `services/vector_store.py`
+- `services/impact_analyzer.py`
+- `services/file_summary_service.py`
+- `utils/llm.py`
+- `static/index.html`
+- `static/review.html`
+- `static/analysis.html`
+
+## Current limitations
+
+- Non-Python language support is heuristic and lighter than the Python parser.
+- The vector store is an in-memory deterministic implementation, not an external embedding database.
+- The review pipeline is single-app and SQLite-backed, so it is best suited for local or small-team use.
+- Codebase-change reset is aggressive by design and clears previous codebase-dependent history.
+- Some very large repositories may still produce large architecture payloads or slow LLM-backed summaries.
+
+## Summary
+
+Req-to-Code is best thought of as an interactive requirement-to-implementation workbench:
+
+- analyze the repo
+- understand its architecture
+- save requirements
+- generate implementation attempts
+- review them in HITL
+- revisit reviewed decisions later
+
+It is designed for local-first experimentation, developer-assisted code generation, and traceable review rather than blind code application.
